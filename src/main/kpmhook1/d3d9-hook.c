@@ -479,18 +479,19 @@ static HRESULT STDMETHODCALLTYPE my_SetSamplerState(
 {
     IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
 
-    /* Upgrade texture filtering for smoother character models and elimination of jaggies */
+    /* Upgrade texture filtering for 3D models while preserving sharp 2D/debug pixel text:
+     * When the game explicitly requests POINT filtering (e.g. debug font overlay, pixel UI),
+     * keep it as POINT so text remains razor-sharp.
+     * When the game requests LINEAR filtering (e.g. 3D character models and textures),
+     * upgrade MINFILTER to ANISOTROPIC (16x) and MIPFILTER to LINEAR.
+     */
     if (Type == D3DSAMP_MINFILTER) {
-        if (Value == D3DTEXF_POINT || Value == D3DTEXF_LINEAR) {
+        if (Value == D3DTEXF_LINEAR) {
             Value = D3DTEXF_ANISOTROPIC;
-        }
-        IDirect3DDevice9_SetSamplerState(real, Sampler, D3DSAMP_MAXANISOTROPY, 16);
-    } else if (Type == D3DSAMP_MAGFILTER) {
-        if (Value == D3DTEXF_POINT) {
-            Value = D3DTEXF_LINEAR;
+            IDirect3DDevice9_SetSamplerState(real, Sampler, D3DSAMP_MAXANISOTROPY, 16);
         }
     } else if (Type == D3DSAMP_MIPFILTER) {
-        if (Value == D3DTEXF_POINT || Value == D3DTEXF_NONE) {
+        if (Value == D3DTEXF_LINEAR) {
             Value = D3DTEXF_LINEAR;
         }
     } else if (Type == D3DSAMP_MAXANISOTROPY) {
