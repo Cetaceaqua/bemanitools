@@ -98,16 +98,17 @@ static void present_station1_quad(IDirect3DDevice9 *real)
         return;
     }
 
+    /* Save full device state via StateBlock */
+    IDirect3DStateBlock9 *sb = NULL;
+    IDirect3DDevice9_CreateStateBlock(real, D3DSBT_ALL, &sb);
+
     IDirect3DSurface9 *orig_rt = NULL;
     IDirect3DSurface9 *orig_ds = NULL;
     IDirect3DDevice9_GetRenderTarget(real, 0, &orig_rt);
     IDirect3DDevice9_GetDepthStencilSurface(real, &orig_ds);
 
-    DWORD prev_z = 0, prev_alpha = 0, prev_cull = 0, prev_light = 0;
-    IDirect3DDevice9_GetRenderState(real, D3DRS_ZENABLE, &prev_z);
-    IDirect3DDevice9_GetRenderState(real, D3DRS_ALPHABLENDENABLE, &prev_alpha);
-    IDirect3DDevice9_GetRenderState(real, D3DRS_CULLMODE, &prev_cull);
-    IDirect3DDevice9_GetRenderState(real, D3DRS_LIGHTING, &prev_light);
+    D3DVIEWPORT9 prev_vp;
+    IDirect3DDevice9_GetViewport(real, &prev_vp);
 
     /* Set swapchain 1 backbuffer as render target */
     IDirect3DDevice9_SetRenderTarget(real, 0, sc1_bb);
@@ -166,13 +167,12 @@ static void present_station1_quad(IDirect3DDevice9 *real)
     IDirect3DDevice9_DrawPrimitiveUP(real, D3DPT_TRIANGLESTRIP, 2, quad, sizeof(struct rot_vertex));
     IDirect3DDevice9_EndScene(real);
 
-    IDirect3DDevice9_SetTexture(real, 0, NULL);
-
-    /* Restore render states */
-    IDirect3DDevice9_SetRenderState(real, D3DRS_ZENABLE, prev_z);
-    IDirect3DDevice9_SetRenderState(real, D3DRS_ALPHABLENDENABLE, prev_alpha);
-    IDirect3DDevice9_SetRenderState(real, D3DRS_CULLMODE, prev_cull);
-    IDirect3DDevice9_SetRenderState(real, D3DRS_LIGHTING, prev_light);
+    /* Restore all device states */
+    if (sb) {
+        IDirect3DStateBlock9_Apply(sb);
+        IDirect3DStateBlock9_Release(sb);
+    }
+    IDirect3DDevice9_SetViewport(real, &prev_vp);
 
     if (orig_rt) {
         IDirect3DDevice9_SetRenderTarget(real, 0, orig_rt);
@@ -341,14 +341,19 @@ static HRESULT STDMETHODCALLTYPE my_CreateTexture(
     HANDLE *pSharedHandle)
 {
     IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+    D3DPOOL orig_pool = Pool;
+
     if (Pool == D3DPOOL_MANAGED) {
         Pool = D3DPOOL_DEFAULT;
-        if (!(Usage & (D3DUSAGE_RENDERTARGET | D3DUSAGE_DEPTHSTENCIL))) {
-            Usage |= D3DUSAGE_DYNAMIC;
-        }
     }
-    return IDirect3DDevice9_CreateTexture(
+    HRESULT hr = IDirect3DDevice9_CreateTexture(
         real, Width, Height, Levels, Usage, Format, Pool, ppTexture, pSharedHandle);
+
+    if (FAILED(hr)) {
+        log_warning("CreateTexture(%ux%u, lvl=%u, use=0x%lx, fmt=0x%lx, pool=%u[orig=%u]) failed: 0x%08lx",
+                    Width, Height, Levels, Usage, (DWORD)Format, Pool, orig_pool, hr);
+    }
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE my_CreateVolumeTexture(
@@ -366,9 +371,6 @@ static HRESULT STDMETHODCALLTYPE my_CreateVolumeTexture(
     IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
     if (Pool == D3DPOOL_MANAGED) {
         Pool = D3DPOOL_DEFAULT;
-        if (!(Usage & (D3DUSAGE_RENDERTARGET | D3DUSAGE_DEPTHSTENCIL))) {
-            Usage |= D3DUSAGE_DYNAMIC;
-        }
     }
     return IDirect3DDevice9_CreateVolumeTexture(
         real, Width, Height, Depth, Levels, Usage, Format, Pool, ppVolumeTexture, pSharedHandle);
@@ -387,9 +389,6 @@ static HRESULT STDMETHODCALLTYPE my_CreateCubeTexture(
     IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
     if (Pool == D3DPOOL_MANAGED) {
         Pool = D3DPOOL_DEFAULT;
-        if (!(Usage & (D3DUSAGE_RENDERTARGET | D3DUSAGE_DEPTHSTENCIL))) {
-            Usage |= D3DUSAGE_DYNAMIC;
-        }
     }
     return IDirect3DDevice9_CreateCubeTexture(
         real, EdgeLength, Levels, Usage, Format, Pool, ppCubeTexture, pSharedHandle);
@@ -612,6 +611,122 @@ static const struct hook_symbol kpm_d3d9_syms[] = {
     },
 };
 
+typedef HRESULT (WINAPI *PFN_D3DXCreateTextureFromFileInMemoryEx)(
+    LPDIRECT3DDEVICE9 pDevice,
+    LPCVOID pSrcData,
+    UINT SrcDataSize,
+    UINT Width,
+    UINT Height,
+    UINT MipLevels,
+    DWORD Usage,
+    D3DFORMAT Format,
+    D3DPOOL Pool,
+    DWORD Filter,
+    DWORD MipFilter,
+    D3DCOLOR ColorKey,
+    void *pSrcInfo,
+    PALETTEENTRY *pPalette,
+    LPDIRECT3DTEXTURE9 *ppTexture);
+
+typedef HRESULT (WINAPI *PFN_D3DXCreateTexture)(
+    LPDIRECT3DDEVICE9 pDevice,
+    UINT Width,
+    UINT Height,
+    UINT MipLevels,
+    DWORD Usage,
+    D3DFORMAT Format,
+    D3DPOOL Pool,
+    LPDIRECT3DTEXTURE9 *ppTexture);
+
+static PFN_D3DXCreateTextureFromFileInMemoryEx real_D3DXCreateTextureFromFileInMemoryEx = NULL;
+static PFN_D3DXCreateTexture real_D3DXCreateTexture = NULL;
+
+static HRESULT WINAPI my_D3DXCreateTextureFromFileInMemoryEx(
+    LPDIRECT3DDEVICE9 pDevice,
+    LPCVOID pSrcData,
+    UINT SrcDataSize,
+    UINT Width,
+    UINT Height,
+    UINT MipLevels,
+    DWORD Usage,
+    D3DFORMAT Format,
+    D3DPOOL Pool,
+    DWORD Filter,
+    DWORD MipFilter,
+    D3DCOLOR ColorKey,
+    void *pSrcInfo,
+    PALETTEENTRY *pPalette,
+    LPDIRECT3DTEXTURE9 *ppTexture)
+{
+    char magic[5] = {0};
+    if (pSrcData && SrcDataSize >= 4) {
+        memcpy(magic, pSrcData, 4);
+        for (int i = 0; i < 4; i++) {
+            if ((unsigned char) magic[i] < 32 || (unsigned char) magic[i] > 126) {
+                magic[i] = '.';
+            }
+        }
+    }
+
+    D3DPOOL target_pool = Pool;
+    if (Pool == D3DPOOL_MANAGED) {
+        target_pool = D3DPOOL_DEFAULT;
+    }
+
+    HRESULT hr = real_D3DXCreateTextureFromFileInMemoryEx(
+        pDevice, pSrcData, SrcDataSize, Width, Height, MipLevels, Usage, Format, target_pool,
+        Filter, MipFilter, ColorKey, pSrcInfo, pPalette, ppTexture);
+
+    if (FAILED(hr)) {
+        log_warning("D3DXCreateTextureFromFileInMemoryEx(sz=%u, magic='%s', %ux%u, lvl=%u, fmt=%u, pool=%u->%u) -> hr=0x%08lx",
+                    SrcDataSize, magic, Width, Height, MipLevels, (DWORD)Format, Pool, target_pool, hr);
+    } else {
+        log_info("D3DXCreateTextureFromFileInMemoryEx(sz=%u, magic='%s', %ux%u, lvl=%u, fmt=%u) -> OK tex=0x%p",
+                 SrcDataSize, magic, Width, Height, MipLevels, (DWORD)Format, ppTexture ? *ppTexture : NULL);
+    }
+
+    return hr;
+}
+
+static HRESULT WINAPI my_D3DXCreateTexture(
+    LPDIRECT3DDEVICE9 pDevice,
+    UINT Width,
+    UINT Height,
+    UINT MipLevels,
+    DWORD Usage,
+    D3DFORMAT Format,
+    D3DPOOL Pool,
+    LPDIRECT3DTEXTURE9 *ppTexture)
+{
+    D3DPOOL target_pool = Pool;
+    if (Pool == D3DPOOL_MANAGED) {
+        target_pool = D3DPOOL_DEFAULT;
+    }
+
+    HRESULT hr = real_D3DXCreateTexture(
+        pDevice, Width, Height, MipLevels, Usage, Format, target_pool, ppTexture);
+
+    if (FAILED(hr)) {
+        log_warning("D3DXCreateTexture(%ux%u, lvl=%u, fmt=%u, pool=%u->%u) -> hr=0x%08lx",
+                    Width, Height, MipLevels, (DWORD)Format, Pool, target_pool, hr);
+    }
+
+    return hr;
+}
+
+static const struct hook_symbol kpm_d3dx9_syms[] = {
+    {
+        .name = "D3DXCreateTextureFromFileInMemoryEx",
+        .patch = my_D3DXCreateTextureFromFileInMemoryEx,
+        .link = (void **) &real_D3DXCreateTextureFromFileInMemoryEx,
+    },
+    {
+        .name = "D3DXCreateTexture",
+        .patch = my_D3DXCreateTexture,
+        .link = (void **) &real_D3DXCreateTexture,
+    },
+};
+
 void kpm_d3d9_hook_init(bool windowed)
 {
     s_windowed = windowed;
@@ -622,5 +737,11 @@ void kpm_d3d9_hook_init(bool windowed)
         kpm_d3d9_syms,
         lengthof(kpm_d3d9_syms));
 
-    log_info("Direct3D9 API hooks installed (windowed=%d)", windowed);
+    hook_table_apply(
+        NULL,
+        "d3dx9_35.dll",
+        kpm_d3dx9_syms,
+        lengthof(kpm_d3dx9_syms));
+
+    log_info("Direct3D9 and D3DX9 API hooks installed (windowed=%d)", windowed);
 }

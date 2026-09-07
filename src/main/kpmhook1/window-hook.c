@@ -255,6 +255,36 @@ static LONG WINAPI my_SetWindowLongW(
     return real_SetWindowLongW(hWnd, nIndex, dwNewLong);
 }
 
+static BOOL (WINAPI *real_GetCursorPos)(LPPOINT lpPoint);
+
+static BOOL WINAPI my_GetCursorPos(LPPOINT lpPoint)
+{
+    if (!real_GetCursorPos) {
+        return FALSE;
+    }
+
+    BOOL res = real_GetCursorPos(lpPoint);
+    if (res && lpPoint && s_station0_hwnd) {
+        /* Convert virtual desktop screen coordinates to Station 0 client coordinates */
+        ScreenToClient(s_station0_hwnd, lpPoint);
+
+        /* Clamp to Station 0 native resolution 1024x768 */
+        if (lpPoint->x < 0) {
+            lpPoint->x = 0;
+        } else if (lpPoint->x > 1023) {
+            lpPoint->x = 1023;
+        }
+
+        if (lpPoint->y < 0) {
+            lpPoint->y = 0;
+        } else if (lpPoint->y > 767) {
+            lpPoint->y = 767;
+        }
+    }
+
+    return res;
+}
+
 static const struct hook_symbol kpm_window_syms[] = {
     {
         .name = "CreateWindowExW",
@@ -270,6 +300,11 @@ static const struct hook_symbol kpm_window_syms[] = {
         .name = "SetWindowLongW",
         .patch = my_SetWindowLongW,
         .link = (void **) &real_SetWindowLongW,
+    },
+    {
+        .name = "GetCursorPos",
+        .patch = my_GetCursorPos,
+        .link = (void **) &real_GetCursorPos,
     },
 };
 
