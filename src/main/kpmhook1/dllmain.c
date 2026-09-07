@@ -5,6 +5,7 @@
 #include "kpmhook1/config-kpm.h"
 #include "kpmhook1/d3d9-hook.h"
 #include "kpmhook1/gfx-patch.h"
+#include "kpmhook1/locale-hook.h"
 #include "kpmhook1/path-hook.h"
 #include "kpmhook1/sound-hook.h"
 #include "kpmhook1/touch-hook.h"
@@ -101,6 +102,9 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
 
     /* Hook window creation, positioning, and dragging for dual-screen windowed mode */
     kpm_window_hook_init();
+
+    /* Redirect ANSI string conversions to Shift-JIS (CP932) and fix Japanese fonts */
+    kpm_locale_hook_init();
 
     /* Bootstrap compatibility game.conf if absent */
     kpm_config_bootstrap();

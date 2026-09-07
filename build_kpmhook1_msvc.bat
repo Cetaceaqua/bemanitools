@@ -36,7 +36,8 @@ cl %CFLAGS% /c ^
     src\main\kpmhook1\config-kpm.c ^
     src\main\kpmhook1\touch-hook.c ^
     src\main\kpmhook1\sound-hook.c ^
-    src\main\kpmhook1\window-hook.c
+    src\main\kpmhook1\window-hook.c ^
+    src\main\kpmhook1\locale-hook.c
 if errorlevel 1 exit /b 1
 
 set LDFLAGS=/nologo /DLL /DEF:src\main\kpmhook1\kpmhook1.def /OUT:%OUTDIR%\kpmhook1.dll
@@ -57,7 +58,8 @@ link %LDFLAGS% ^
     %OBJDIR%\touch-hook.obj ^
     %OBJDIR%\sound-hook.obj ^
     %OBJDIR%\window-hook.obj ^
-    ws2_32.lib user32.lib kernel32.lib d3d9.lib
+    %OBJDIR%\locale-hook.obj ^
+    ws2_32.lib user32.lib kernel32.lib gdi32.lib d3d9.lib
 if errorlevel 1 exit /b 1
 
 echo.

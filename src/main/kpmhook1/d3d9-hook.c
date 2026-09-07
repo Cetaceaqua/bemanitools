@@ -162,6 +162,9 @@ static void present_station1_quad(IDirect3DDevice9 *real)
     IDirect3DDevice9_SetTextureStageState(real, 0, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
     IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
     IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
 
     IDirect3DDevice9_BeginScene(real);
     IDirect3DDevice9_DrawPrimitiveUP(real, D3DPT_TRIANGLESTRIP, 2, quad, sizeof(struct rot_vertex));
@@ -468,6 +471,51 @@ static HRESULT STDMETHODCALLTYPE my_CreateOffscreenPlainSurface(
         real, Width, Height, Format, Pool, ppSurface, pSharedHandle);
 }
 
+static HRESULT STDMETHODCALLTYPE my_SetSamplerState(
+    IDirect3DDevice9 *self,
+    DWORD Sampler,
+    D3DSAMPLERSTATETYPE Type,
+    DWORD Value)
+{
+    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+
+    /* Upgrade texture filtering for smoother character models and elimination of jaggies */
+    if (Type == D3DSAMP_MINFILTER) {
+        if (Value == D3DTEXF_POINT || Value == D3DTEXF_LINEAR) {
+            Value = D3DTEXF_ANISOTROPIC;
+        }
+        IDirect3DDevice9_SetSamplerState(real, Sampler, D3DSAMP_MAXANISOTROPY, 16);
+    } else if (Type == D3DSAMP_MAGFILTER) {
+        if (Value == D3DTEXF_POINT) {
+            Value = D3DTEXF_LINEAR;
+        }
+    } else if (Type == D3DSAMP_MIPFILTER) {
+        if (Value == D3DTEXF_POINT || Value == D3DTEXF_NONE) {
+            Value = D3DTEXF_LINEAR;
+        }
+    } else if (Type == D3DSAMP_MAXANISOTROPY) {
+        if (Value < 16) {
+            Value = 16;
+        }
+    }
+
+    return IDirect3DDevice9_SetSamplerState(real, Sampler, Type, Value);
+}
+
+static HRESULT STDMETHODCALLTYPE my_SetRenderState(
+    IDirect3DDevice9 *self,
+    D3DRENDERSTATETYPE State,
+    DWORD Value)
+{
+    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+
+    if (State == D3DRS_MULTISAMPLEANTIALIAS && Value == FALSE) {
+        Value = TRUE;
+    }
+
+    return IDirect3DDevice9_SetRenderState(real, State, Value);
+}
+
 static HRESULT STDMETHODCALLTYPE my_CreateDevice(
     IDirect3D9 *self,
     UINT adapter,
@@ -575,6 +623,8 @@ static HRESULT STDMETHODCALLTYPE my_CreateDevice(
             dev_vtbl->CreateVertexBuffer = my_CreateVertexBuffer;
             dev_vtbl->CreateIndexBuffer = my_CreateIndexBuffer;
             dev_vtbl->CreateOffscreenPlainSurface = my_CreateOffscreenPlainSurface;
+            dev_vtbl->SetSamplerState = my_SetSamplerState;
+            dev_vtbl->SetRenderState = my_SetRenderState;
             *pdev = (IDirect3DDevice9 *) dev_proxy;
             log_info("IDirect3DDevice9 wrapped with com_proxy successfully (proxy=0x%p)", dev_proxy);
         } else {
