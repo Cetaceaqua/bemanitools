@@ -11,14 +11,14 @@ Hook library for *LovePlus MEDAL Happy Daily Life* (愛相随 MEDAL Happy Daily 
   - `d:/kpm/...` -> `<game_root>/...`
   - `e:/...` -> `<game_root>/e/...`
 - **Automatic Configuration Bootstrapping**:
-  Generates a working `game.conf` from `default_game.conf` if not present, ensuring vital bypass flags are active:
-  - `station=1` (single-station windowed mode)
+  Generates a working `game.conf` if not present, ensuring vital bypass flags are active:
   - `NO_SUBBOARD=1` (bypasses PLX9030 PCI subboard detection)
   - `NO_TOUCHPANEL=1` (enables mouse cursor, skips touch panel driver hook)
   - `IGNORE_IRCOM=1` (skips IrDA infrared link)
   - `NO_CARDREADER=1` (skips card reader)
   - `DISABLE_ALL_ERROR=1` (bypasses hardware error halts)
   - `IGNORE_FILE_CHECK=1` (skips file integrity check)
+  - `rotate=1` (rotates subscreen 90 deg CCW)
 
 ## Usage
 

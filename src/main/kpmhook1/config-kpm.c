@@ -13,11 +13,8 @@ void kpm_config_bootstrap(void)
 {
     char root[MAX_PATH];
     char conf_path[MAX_PATH];
-    char def_conf_path[MAX_PATH];
     char *last_sep;
-    FILE *f_in;
     FILE *f_out;
-    char line[1024];
 
     GetModuleFileNameA(NULL, root, sizeof(root));
     last_sep = strrchr(root, '\\');
@@ -29,7 +26,6 @@ void kpm_config_bootstrap(void)
     }
 
     _snprintf(conf_path, sizeof(conf_path), "%s\\game.conf", root);
-    _snprintf(def_conf_path, sizeof(def_conf_path), "%s\\default_game.conf", root);
 
     /* If game.conf already exists, do nothing */
     if (GetFileAttributesA(conf_path) != INVALID_FILE_ATTRIBUTES) {
@@ -37,57 +33,28 @@ void kpm_config_bootstrap(void)
         return;
     }
 
-    log_info("game.conf not found. Bootstrapping compatibility config from default_game.conf...");
+    log_info("game.conf not found. Generating minimal standalone game.conf...");
 
-    f_in = fopen(def_conf_path, "rt");
     f_out = fopen(conf_path, "wt");
-
     if (!f_out) {
         log_warning("Failed to create %s for writing", conf_path);
-        if (f_in) fclose(f_in);
         return;
     }
 
-    if (f_in) {
-        /* Filter/override known crash-inducing options */
-        while (fgets(line, sizeof(line), f_in)) {
-            if (_strnicmp(line, "station=", 8) == 0) {
-                fputs("station=1\n", f_out);
-            } else if (_strnicmp(line, "NO_TOUCHPANEL=", 14) == 0) {
-                fputs("NO_TOUCHPANEL=1\n", f_out);
-            } else if (_strnicmp(line, "NO_SUBBOARD=", 12) == 0) {
-                fputs("NO_SUBBOARD=1\n", f_out);
-            } else if (_strnicmp(line, "IGNORE_IRCOM=", 13) == 0) {
-                fputs("IGNORE_IRCOM=1\n", f_out);
-            } else if (_strnicmp(line, "NO_CARDREADER=", 14) == 0) {
-                fputs("NO_CARDREADER=1\n", f_out);
-            } else if (_strnicmp(line, "DISABLE_ALL_ERROR=", 18) == 0) {
-                fputs("DISABLE_ALL_ERROR=1\n", f_out);
-            } else if (_strnicmp(line, "IGNORE_FILE_CHECK=", 18) == 0) {
-                fputs("IGNORE_FILE_CHECK=1\n", f_out);
-            } else {
-                fputs(line, f_out);
-            }
-        }
-        fclose(f_in);
-    } else {
-        /* Generate minimal fallback game.conf */
-        fputs("width=1024\n", f_out);
-        fputs("height=768\n", f_out);
-        fputs("station=1\n", f_out);
-        fputs("sound_ram=256\n", f_out);
-        fputs("sound_s3b=\"d:/KPM/data/sound/sound.s3b\"\n", f_out);
-        fputs("temp_dir=\"E:\\\\temp\\\\\"\n", f_out);
-        fputs("NO_TOUCHPANEL=1\n", f_out);
-        fputs("NO_SUBBOARD=1\n", f_out);
-        fputs("IGNORE_IRCOM=1\n", f_out);
-        fputs("NO_CARDREADER=1\n", f_out);
-        fputs("DISABLE_ALL_ERROR=1\n", f_out);
-        fputs("IGNORE_FILE_CHECK=1\n", f_out);
-    }
+    /* Minimal entries needed for standalone PC operation without arcade IO boards.
+     * Unspecified entries will safely use the game's internal default values.
+     */
+    fputs("# LovePlus MEDAL (KPM) minimal configuration\n", f_out);
+    fputs("NO_TOUCHPANEL=1\n", f_out);
+    fputs("NO_SUBBOARD=1\n", f_out);
+    fputs("NO_CARDREADER=1\n", f_out);
+    fputs("IGNORE_IRCOM=1\n", f_out);
+    fputs("DISABLE_ALL_ERROR=1\n", f_out);
+    fputs("IGNORE_FILE_CHECK=1\n", f_out);
+    fputs("rotate=1\n", f_out);
 
     fclose(f_out);
-    log_info("Successfully created game.conf with Windows 11 compatibility options (station=1, NO_SUBBOARD=1, NO_TOUCHPANEL=1, etc.)");
+    log_info("Successfully created minimal game.conf (NO_SUBBOARD=1, NO_TOUCHPANEL=1, etc.)");
 }
 
 bool kpm_config_get_rotate(void)
