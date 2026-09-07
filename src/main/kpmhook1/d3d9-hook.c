@@ -329,6 +329,15 @@ static HRESULT STDMETHODCALLTYPE my_GetSwapChain(
     return D3DERR_INVALIDCALL;
 }
 
+static inline bool is_dxt_format(D3DFORMAT fmt)
+{
+    return fmt == (D3DFORMAT) 0x31545844 || // DXT1
+           fmt == (D3DFORMAT) 0x32545844 || // DXT2
+           fmt == (D3DFORMAT) 0x33545844 || // DXT3
+           fmt == (D3DFORMAT) 0x34545844 || // DXT4
+           fmt == (D3DFORMAT) 0x35545844;   // DXT5
+}
+
 static HRESULT STDMETHODCALLTYPE my_CreateTexture(
     IDirect3DDevice9 *self,
     UINT Width,
@@ -342,16 +351,28 @@ static HRESULT STDMETHODCALLTYPE my_CreateTexture(
 {
     IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
     D3DPOOL orig_pool = Pool;
+    DWORD orig_usage = Usage;
 
     if (Pool == D3DPOOL_MANAGED) {
         Pool = D3DPOOL_DEFAULT;
+        /* In D3D9Ex, D3DPOOL_DEFAULT textures can ONLY be locked with LockRect()
+         * if they have D3DUSAGE_DYNAMIC. However, DXT compressed formats cannot be
+         * dynamic, and multi-level mipmapped textures cannot be dynamic.
+         * Only add D3DUSAGE_DYNAMIC if it's NOT a render target/depth stencil,
+         * NOT a DXT format, and has 1 mip level.
+         */
+        if (!(Usage & (D3DUSAGE_RENDERTARGET | D3DUSAGE_DEPTHSTENCIL)) &&
+            !is_dxt_format(Format) &&
+            Levels == 1) {
+            Usage |= D3DUSAGE_DYNAMIC;
+        }
     }
     HRESULT hr = IDirect3DDevice9_CreateTexture(
         real, Width, Height, Levels, Usage, Format, Pool, ppTexture, pSharedHandle);
 
     if (FAILED(hr)) {
-        log_warning("CreateTexture(%ux%u, lvl=%u, use=0x%lx, fmt=0x%lx, pool=%u[orig=%u]) failed: 0x%08lx",
-                    Width, Height, Levels, Usage, (DWORD)Format, Pool, orig_pool, hr);
+        log_warning("CreateTexture(%ux%u, lvl=%u, use=0x%lx[orig=0x%lx], fmt=0x%lx, pool=%u[orig=%u]) failed: 0x%08lx",
+                    Width, Height, Levels, Usage, orig_usage, (DWORD)Format, Pool, orig_pool, hr);
     }
     return hr;
 }
