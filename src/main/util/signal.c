@@ -135,6 +135,8 @@ const char *signal_exception_code_to_str(DWORD code)
             return "EXCEPTION_STACK_OVERFLOW";
         case DBG_CONTROL_C:
             return "DBG_CONTROL_C";
+        case 0xE06D7363:
+            return "MSVC_CPP_EXCEPTION";
         default:
             log_warning("Unknown exception code: %lX", code);
             return "Unknown";

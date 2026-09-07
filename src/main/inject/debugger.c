@@ -267,6 +267,12 @@ static uint32_t debugger_loop()
 
         switch (de.dwDebugEventCode) {
             case EXCEPTION_DEBUG_EVENT:
+                if (de.u.Exception.dwFirstChance &&
+                    de.u.Exception.ExceptionRecord.ExceptionCode == 0xE06D7363) {
+                    continue_status = DBG_EXCEPTION_NOT_HANDLED;
+                    break;
+                }
+
                 log_misc(
                     "EXCEPTION_DEBUG_EVENT(pid %ld, tid %ld): x%s 0x%p",
                     de.dwProcessId,
