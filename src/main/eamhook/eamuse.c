@@ -54,16 +54,21 @@ static int STDCALL my_connect(SOCKET s, const struct sockaddr *addr, int addrlen
 {
     if (addr && addr->sa_family == AF_INET) {
         struct sockaddr_in *addr_in = (struct sockaddr_in *) addr;
+        char *ip_str = inet_ntoa(addr_in->sin_addr);
+        uint16_t port = ntohs(addr_in->sin_port);
+
         if (addr_in->sin_addr.S_un.S_addr == eamuse_server_addr_resolved.ipv4.addr) {
             char *tmp = net_addr_to_str(&eamuse_server_addr_resolved);
             log_info(
-                "Redirecting connection to %s (patching port %d -> %d)",
-                tmp,
-                ntohs(addr_in->sin_port),
-                eamuse_server_addr_resolved.ipv4.port);
+                "Redirecting connect (%s:%d -> target %s)",
+                ip_str,
+                port,
+                tmp);
             free(tmp);
 
             addr_in->sin_port = htons(eamuse_server_addr_resolved.ipv4.port);
+        } else {
+            log_misc("connect: %s:%d", ip_str, port);
         }
     }
 
@@ -72,6 +77,8 @@ static int STDCALL my_connect(SOCKET s, const struct sockaddr *addr, int addrlen
 
 static struct hostent FAR *STDCALL my_gethostbyname(const char *name)
 {
+    log_misc("gethostbyname: '%s'", name ? name : "<null>");
+
     if (!is_eamuse_host(name)) {
         return real_gethostbyname(name);
     }

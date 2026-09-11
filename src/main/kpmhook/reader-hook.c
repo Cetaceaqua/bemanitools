@@ -1,4 +1,4 @@
-﻿#define LOG_MODULE "kpm-reader-hook"
+#define LOG_MODULE "kpm-reader-hook"
 
 #include <windows.h>
 #include <stdbool.h>
@@ -135,14 +135,62 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
 
     /* Card polling query: cmd=0x01, subcmd=0x34 (e.g. AA 00 01 34 01 10 46) */
     if (c_cmd == 0x01 && c_subcmd == 0x34) {
+        static bool s_logged_first_poll = false;
+        if (!s_logged_first_poll) {
+            s_logged_first_poll = true;
+            log_info("Game started card reader RFID polling loop (cmd 0x01:0x34)");
+        }
+
         ensure_eamio_initialized();
         eam_io_poll(0);
         uint8_t sensor = eam_io_get_sensor_state(0);
+
+        /* Automatic keyboard fallback: if eamio has no HID device configured in config.exe,
+           check NumPad Plus (VK_ADD) and standard Plus/Equal (VK_OEM_PLUS) */
+        if (!sensor) {
+            if ((GetAsyncKeyState(VK_ADD) & 0x8000) || (GetAsyncKeyState(VK_OEM_PLUS) & 0x8000)) {
+                sensor = (1 << EAM_IO_SENSOR_FRONT) | (1 << EAM_IO_SENSOR_BACK);
+            }
+        }
 
         if (sensor != 0) {
             uint8_t uid[8];
             memset(uid, 0, sizeof(uid));
             uint8_t card_type = eam_io_read_card(0, uid, sizeof(uid));
+
+            /* Fallback: if eam_io_read_card returned none (e.g. card_path not configured or failed),
+               try reading card0.txt directly */
+            if (card_type == EAM_IO_CARD_NONE) {
+                FILE *cf = fopen("card0.txt", "r");
+                if (!cf) {
+                    cf = fopen("contents\\card0.txt", "r");
+                }
+                if (cf) {
+                    char line[64];
+                    if (fgets(line, sizeof(line), cf)) {
+                        char *p = line;
+                        while (*p && (*p == ' ' || *p == '\t')) p++;
+                        char hex[17];
+                        strncpy(hex, p, 16);
+                        hex[16] = '\0';
+                        for (int i = 0; i < 8; i++) {
+                            unsigned int b = 0;
+                            sscanf(&hex[i * 2], "%02X", &b);
+                            uid[i] = (uint8_t) b;
+                        }
+                        card_type = (uid[0] == 0xE0 && uid[1] == 0x04) ? 
+                            EAM_IO_CARD_ISO15696 : EAM_IO_CARD_FELICA;
+                    }
+                    fclose(cf);
+                }
+                if (card_type == EAM_IO_CARD_NONE) {
+                    /* Hardcoded fallback card ID */
+                    uid[0] = 0xE0; uid[1] = 0x04; uid[2] = 0x01; uid[3] = 0x00;
+                    uid[4] = 0x23; uid[5] = 0x7C; uid[6] = 0x93; uid[7] = 0x16;
+                    card_type = EAM_IO_CARD_ISO15696;
+                }
+            }
+
             /* 1 = ISO15693 (e-Amusement Pass), 0 = FeliCa */
             uint8_t kpm_card_type = (card_type == EAM_IO_CARD_FELICA) ? 0 : 1;
 

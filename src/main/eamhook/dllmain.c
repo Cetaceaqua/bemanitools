@@ -170,6 +170,22 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     eamuse_hook_init();
     eamuse_set_addr(&cfg.server_addr);
 
+    /* Disable WMI network adapter check in eam3util to avoid CoInitializeSecurity
+       failures and domain mismatches on modern Windows, forcing the built-in
+       dummy adapter (domain: konami) to enable online mode */
+    HMODULE eam3util = GetModuleHandleA("eam3util.dll");
+    if (eam3util) {
+        typedef void (*set_no_wmi_mode_t)(void);
+        set_no_wmi_mode_t set_no_wmi = (set_no_wmi_mode_t) GetProcAddress(
+            eam3util, "?SetNoWMIMode@CEamuseUtil@@SAXXZ");
+        if (set_no_wmi) {
+            set_no_wmi();
+            log_info("Invoked CEamuseUtil::SetNoWMIMode() (bypassing WMI and domain check)");
+        } else {
+            log_warning("Could not find ?SetNoWMIMode@CEamuseUtil@@SAXXZ in eam3util.dll");
+        }
+    }
+
     /* Hook ExitProcess/TerminateProcess to trace exit reasons */
     hook_table_apply(
         NULL, "kernel32.dll", eam_exit_syms, lengthof(eam_exit_syms));
