@@ -46,9 +46,9 @@ static bool verify_hook_dll_and_exec_args_and_count_hooks(
     *exec_arg_pos = 0;
 
     for (int i = 1; i < argc; i++) {
-        if (str_ends_with(argv[i], "dll")) {
+        if (str_ends_with(argv[i], "dll") || str_ends_with(argv[i], "DLL")) {
             (*hooks)++;
-        } else if (str_ends_with(argv[i], "exe")) {
+        } else if (str_ends_with(argv[i], "exe") || str_ends_with(argv[i], "EXE")) {
             *exec_arg_pos = i;
             break;
         }
