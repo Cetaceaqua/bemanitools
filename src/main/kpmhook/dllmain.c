@@ -135,8 +135,8 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     /* Redirect ANSI string conversions to Shift-JIS (CP932) and fix Japanese fonts */
     kpm_locale_hook_init();
 
-    /* Hook PCSub arcade I/O and patch button/medal polling */
-    kpm_io_hook_init(config_io.disable_debug_keys);
+    /* Hook PCSub arcade I/O, cabinet lights, and patch button/medal polling */
+    kpm_io_hook_init(&config_io);
 
     log_info("kpmhook initialized successfully. Resuming game execution.");
     return TRUE;

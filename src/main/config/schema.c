@@ -308,6 +308,18 @@ static const struct light_def kpm_lights[] = {
     {0x08, IDS_KPM_LAMP_POP_R_R},
     {0x09, IDS_KPM_LAMP_POP_R_G},
     {0x0A, IDS_KPM_LAMP_POP_R_B},
+    {0x0B, IDS_KPM_LAMP_SCREEN_R},
+    {0x0C, IDS_KPM_LAMP_SCREEN_G},
+    {0x0D, IDS_KPM_LAMP_SCREEN_B},
+    {0x0E, IDS_KPM_LAMP_FRONT_R},
+    {0x0F, IDS_KPM_LAMP_FRONT_G},
+    {0x10, IDS_KPM_LAMP_FRONT_B},
+    {0x11, IDS_KPM_LAMP_SIDE_L_R},
+    {0x12, IDS_KPM_LAMP_SIDE_L_G},
+    {0x13, IDS_KPM_LAMP_SIDE_L_B},
+    {0x14, IDS_KPM_LAMP_SIDE_R_R},
+    {0x15, IDS_KPM_LAMP_SIDE_R_G},
+    {0x16, IDS_KPM_LAMP_SIDE_R_B},
 };
 
 static const struct eam_unit_def schema_eam_unit_defs[] = {

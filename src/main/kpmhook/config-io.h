@@ -10,6 +10,10 @@
  */
 struct kpmhook_config_io {
     bool disable_debug_keys;
+    bool lights_normalized;
+    bool lights_raw_serial;
+    char lights_raw_port[32];
+    int lights_raw_baud;
 };
 
 /**
