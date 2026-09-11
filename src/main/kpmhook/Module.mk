@@ -10,6 +10,7 @@ libs_kpmhook := \
     hook \
     hooklib \
     cconfig \
+    kpmio \
     util
 
 src_kpmhook := \
@@ -21,5 +22,6 @@ src_kpmhook := \
     sound-hook.c \
     window-hook.c \
     locale-hook.c \
+    io-hook.c \
     d3d9-hook.c \
     dllmain.c

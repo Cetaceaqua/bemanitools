@@ -8,6 +8,7 @@
 #include "hook/table.h"
 #include "kpmhook/config-kpm.h"
 #include "kpmhook/d3d9-hook.h"
+#include "kpmhook/io-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 
@@ -282,6 +283,9 @@ static HRESULT STDMETHODCALLTYPE my_Present(
     const RGNDATA *pDirtyRegion)
 {
     IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+
+    /* Update arcade inputs and PCSub simulation */
+    kpm_io_hook_update();
 
     /* Present Station 1 (Sub Screen) */
     if (s_has_dual_station) {

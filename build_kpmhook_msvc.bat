@@ -38,6 +38,7 @@ cl %CFLAGS% /c ^
     src\main\cconfig\cconfig-util.c ^
     src\main\cconfig\cmd.c ^
     src\main\cconfig\conf.c ^
+    src\main\kpmio\kpmio.c ^
     src\main\kpmhook\config-gfx.c ^
     src\main\kpmhook\config-kpm.c ^
     src\main\kpmhook\gfx-patch.c ^
@@ -47,6 +48,7 @@ cl %CFLAGS% /c ^
     src\main\kpmhook\sound-hook.c ^
     src\main\kpmhook\window-hook.c ^
     src\main\kpmhook\locale-hook.c ^
+    src\main\kpmhook\io-hook.c ^
     src\main\kpmhook\dllmain.c
 if errorlevel 1 exit /b 1
 
@@ -69,6 +71,7 @@ link %LDFLAGS% ^
     %OBJDIR%\cconfig-util.obj ^
     %OBJDIR%\cmd.obj ^
     %OBJDIR%\conf.obj ^
+    %OBJDIR%\kpmio.obj ^
     %OBJDIR%\config-gfx.obj ^
     %OBJDIR%\config-kpm.obj ^
     %OBJDIR%\gfx-patch.obj ^
@@ -78,6 +81,7 @@ link %LDFLAGS% ^
     %OBJDIR%\sound-hook.obj ^
     %OBJDIR%\window-hook.obj ^
     %OBJDIR%\locale-hook.obj ^
+    %OBJDIR%\io-hook.obj ^
     %OBJDIR%\dllmain.obj ^
     ws2_32.lib user32.lib kernel32.lib gdi32.lib d3d9.lib shell32.lib
 if errorlevel 1 exit /b 1

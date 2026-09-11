@@ -12,6 +12,7 @@
 #include "kpmhook/sound-hook.h"
 #include "kpmhook/touch-hook.h"
 #include "kpmhook/window-hook.h"
+#include "kpmhook/io-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 
@@ -129,6 +130,9 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
 
     /* Redirect ANSI string conversions to Shift-JIS (CP932) and fix Japanese fonts */
     kpm_locale_hook_init();
+
+    /* Hook PCSub arcade I/O and patch button/medal polling */
+    kpm_io_hook_init();
 
     log_info("kpmhook initialized successfully. Resuming game execution.");
     return TRUE;

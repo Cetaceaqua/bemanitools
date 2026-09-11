@@ -1,0 +1,12 @@
+LIBRARY kpmio
+
+EXPORTS
+    kpm_io_set_loggers
+    kpm_io_init
+    kpm_io_fini
+    kpm_io_read_inputs
+    kpm_io_get_buttons
+    kpm_io_get_coin_pulse
+    kpm_io_payout_demand
+    kpm_io_get_payout_status
+    kpm_io_set_lamps
