@@ -29,6 +29,11 @@
 #define KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_BAUD_VALUE \
     115200
 
+#define KPMHOOK_CONFIG_IO_CARD_PORT_KEY \
+    "card.port"
+#define KPMHOOK_CONFIG_IO_DEFAULT_CARD_PORT_VALUE \
+    ""
+
 void kpmhook_config_io_init(struct cconfig *config)
 {
     cconfig_util_set_bool(
@@ -61,6 +66,13 @@ void kpmhook_config_io_init(struct cconfig *config)
         KPMHOOK_CONFIG_IO_LIGHTS_RAW_BAUD_KEY,
         KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_BAUD_VALUE,
         "Baud rate for DIY raw LED stream (default: 115200)");
+
+    cconfig_util_set_str(
+        config,
+        KPMHOOK_CONFIG_IO_CARD_PORT_KEY,
+        KPMHOOK_CONFIG_IO_DEFAULT_CARD_PORT_VALUE,
+        "Serial port for real physical card reader pass-through (e.g. COM3). "
+        "Leave empty to use eamio virtual card reader emulation (default: empty)");
 }
 
 void kpmhook_config_io_get(
@@ -120,5 +132,17 @@ void kpmhook_config_io_get(
             "Invalid value for key '%s' specified, fallback to default '%d'",
             KPMHOOK_CONFIG_IO_LIGHTS_RAW_BAUD_KEY,
             KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_BAUD_VALUE);
+    }
+
+    if (!cconfig_util_get_str(
+            config,
+            KPMHOOK_CONFIG_IO_CARD_PORT_KEY,
+            config_io->card_port,
+            sizeof(config_io->card_port) - 1,
+            KPMHOOK_CONFIG_IO_DEFAULT_CARD_PORT_VALUE)) {
+        log_warning(
+            "Invalid value for key '%s' specified, fallback to default '%s'",
+            KPMHOOK_CONFIG_IO_CARD_PORT_KEY,
+            KPMHOOK_CONFIG_IO_DEFAULT_CARD_PORT_VALUE);
     }
 }

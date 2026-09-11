@@ -11,6 +11,7 @@ libs_kpmhook := \
     hooklib \
     cconfig \
     kpmio \
+    eamio \
     util
 
 src_kpmhook := \
@@ -24,5 +25,6 @@ src_kpmhook := \
     window-hook.c \
     locale-hook.c \
     io-hook.c \
+    reader-hook.c \
     d3d9-hook.c \
     dllmain.c

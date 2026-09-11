@@ -14,6 +14,7 @@ struct kpmhook_config_io {
     bool lights_raw_serial;
     char lights_raw_port[32];
     int lights_raw_baud;
+    char card_port[32];
 };
 
 /**

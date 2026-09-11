@@ -14,6 +14,7 @@
 #include "kpmhook/touch-hook.h"
 #include "kpmhook/window-hook.h"
 #include "kpmhook/io-hook.h"
+#include "kpmhook/reader-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 
@@ -137,6 +138,9 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
 
     /* Hook PCSub arcade I/O, cabinet lights, and patch button/medal polling */
     kpm_io_hook_init(&config_io);
+
+    /* Hook COM1 card reader (eamio virtual reader or physical serial passthrough) */
+    kpm_reader_hook_init(&config_io);
 
     log_info("kpmhook initialized successfully. Resuming game execution.");
     return TRUE;
