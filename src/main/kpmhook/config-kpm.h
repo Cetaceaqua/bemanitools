@@ -3,20 +3,18 @@
 
 #include <stdbool.h>
 
-struct kpmhook_config {
-    bool windowed;
-    int station;
-};
+#include "kpmhook/config-gfx.h"
 
 /**
- * Check and bootstrap game.conf with optimal Windows 11 compatibility settings.
+ * Check and bootstrap game.conf with optimal compatibility settings.
+ *
+ * @param gfx_cfg Graphics configuration obtained from cconfig.
  */
-void kpm_config_bootstrap(void);
+void kpm_config_bootstrap(const struct kpmhook_config_gfx *gfx_cfg);
 
 /**
- * Check if display should be rotated 90 degrees CCW (portrait mode).
- * Defaults to true unless rotate=0 is set in game.conf.
+ * Check if sub-screen display should be rotated 90 degrees CCW (portrait mode).
  */
 bool kpm_config_get_rotate(void);
 
-#endif
+#endif /* KPMHOOK_CONFIG_KPM_H */

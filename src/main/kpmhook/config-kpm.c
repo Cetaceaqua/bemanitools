@@ -9,12 +9,18 @@
 #include "kpmhook/config-kpm.h"
 #include "util/log.h"
 
-void kpm_config_bootstrap(void)
+static int s_rotate = 1;
+
+void kpm_config_bootstrap(const struct kpmhook_config_gfx *gfx_cfg)
 {
     char root[MAX_PATH];
     char conf_path[MAX_PATH];
     char *last_sep;
     FILE *f_out;
+
+    if (gfx_cfg) {
+        s_rotate = gfx_cfg->rotate ? 1 : 0;
+    }
 
     GetModuleFileNameA(NULL, root, sizeof(root));
     last_sep = strrchr(root, '\\');
@@ -51,50 +57,13 @@ void kpm_config_bootstrap(void)
     fputs("IGNORE_IRCOM=1\n", f_out);
     fputs("DISABLE_ALL_ERROR=1\n", f_out);
     fputs("IGNORE_FILE_CHECK=1\n", f_out);
-    fputs("rotate=1\n", f_out);
+    fprintf(f_out, "rotate=%d\n", s_rotate);
 
     fclose(f_out);
-    log_info("Successfully created minimal game.conf (NO_SUBBOARD=1, NO_TOUCHPANEL=1, etc.)");
+    log_info("Successfully created minimal game.conf (NO_SUBBOARD=1, NO_TOUCHPANEL=1, rotate=%d)", s_rotate);
 }
 
 bool kpm_config_get_rotate(void)
 {
-    static int cached_rotate = -1;
-    if (cached_rotate != -1) {
-        return cached_rotate != 0;
-    }
-
-    /* Default to true (portrait 90 deg CCW) for arcade display */
-    cached_rotate = 1;
-
-    char root[MAX_PATH];
-    char conf_path[MAX_PATH];
-    char *last_sep;
-
-    GetModuleFileNameA(NULL, root, sizeof(root));
-    last_sep = strrchr(root, '\\');
-    if (!last_sep) {
-        last_sep = strrchr(root, '/');
-    }
-    if (last_sep) {
-        *last_sep = '\0';
-    }
-
-    _snprintf(conf_path, sizeof(conf_path), "%s\\game.conf", root);
-
-    FILE *f = fopen(conf_path, "rt");
-    if (f) {
-        char line[1024];
-        while (fgets(line, sizeof(line), f)) {
-            if (_strnicmp(line, "rotate=", 7) == 0) {
-                int val = atoi(line + 7);
-                cached_rotate = (val != 0) ? 1 : 0;
-                break;
-            }
-        }
-        fclose(f);
-    }
-
-    log_info("Display rotation (90 deg CCW portrait): %s", cached_rotate ? "ENABLED" : "DISABLED");
-    return cached_rotate != 0;
+    return s_rotate != 0;
 }

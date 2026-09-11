@@ -2,6 +2,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "cconfig/cconfig-hook.h"
+#include "kpmhook/config-gfx.h"
 #include "kpmhook/config-kpm.h"
 #include "kpmhook/d3d9-hook.h"
 #include "kpmhook/gfx-patch.h"
@@ -16,6 +18,8 @@
 #define KPMHOOK_INFO_HEADER \
     "kpmhook for LovePlus MEDAL Happy Daily Life" \
     ", build " __DATE__ " " __TIME__
+#define KPMHOOK_CMD_USAGE \
+    "Usage: inject.exe kpmhook.dll KT_SKELETON_ST_DUAL.EXE [options...]"
 
 static void crash_log(const char *fmt, ...)
 {
@@ -80,16 +84,36 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     log_info("Initializing kpmhook early process hooks...");
     log_info("=============================================================");
 
+    struct cconfig *config = cconfig_init();
+    struct kpmhook_config_gfx config_gfx;
+
+    kpmhook_config_gfx_init(config);
+
+    if (!cconfig_hook_config_init(
+            config,
+            KPMHOOK_INFO_HEADER "\n" KPMHOOK_CMD_USAGE,
+            CCONFIG_CMD_USAGE_OUT_DBG)) {
+        cconfig_finit(config);
+        log_fatal("cconfig initialization failed");
+        return FALSE;
+    }
+
+    kpmhook_config_gfx_get(&config_gfx, config);
+    cconfig_finit(config);
+
     if (!kpm_gfx_patch_verify()) {
         log_fatal("Target binary verification failed! Aborting injection.");
         return FALSE;
     }
 
+    /* Bootstrap compatibility game.conf if absent */
+    kpm_config_bootstrap(&config_gfx);
+
     /* Intercept Direct3D9 to fix Windows 10/11 presentation incompatibilities */
-    kpm_d3d9_hook_init(true);
+    kpm_d3d9_hook_init(config_gfx.windowed);
 
     /* Force Direct3D9 windowed mode (disable fullscreen flags) */
-    kpm_gfx_patch_apply(true);
+    kpm_gfx_patch_apply(config_gfx.windowed);
 
     /* Redirect hardcoded D:/KPM/ and E:/ paths */
     kpm_path_hook_init();
@@ -106,10 +130,6 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     /* Redirect ANSI string conversions to Shift-JIS (CP932) and fix Japanese fonts */
     kpm_locale_hook_init();
 
-    /* Bootstrap compatibility game.conf if absent */
-    kpm_config_bootstrap();
-
     log_info("kpmhook initialized successfully. Resuming game execution.");
     return TRUE;
 }
-
