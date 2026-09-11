@@ -64,49 +64,13 @@ void kpm_io_fini(void)
     }
 }
 
-static bool is_key_down(int vk)
-{
-    return (GetAsyncKeyState(vk) & 0x8000) != 0;
-}
-
 bool kpm_io_read_inputs(void)
 {
     uint64_t pack = mapper_update();
-    uint16_t btn = (uint16_t)(pack & 0x01FF); /* Bits 0..8 configured via config.exe */
+    s_buttons = (uint16_t) (pack & 0x01FF); /* Bits 0..8 configured via config.exe */
 
-    /* Default keyboard fallbacks for quick play without config.exe setup */
-    if (is_key_down(VK_F1)) {
-        btn |= KPM_IO_BTN_TEST;
-    }
-    if (is_key_down(VK_F2)) {
-        btn |= KPM_IO_BTN_RESET_KEY;
-    }
-    if (is_key_down('1') || is_key_down(VK_NUMPAD1)) {
-        btn |= KPM_IO_BTN_1BET;
-    }
-    if (is_key_down('2') || is_key_down(VK_NUMPAD2)) {
-        btn |= KPM_IO_BTN_MAXBET;
-    }
-    if (is_key_down(VK_SPACE) || is_key_down(VK_RETURN) || is_key_down('3')) {
-        btn |= KPM_IO_BTN_START_REPEAT;
-    }
-    if (is_key_down(VK_BACK) || is_key_down('C') || is_key_down('4')) {
-        btn |= KPM_IO_BTN_COLLECT_PAYOUT;
-    }
-    if (is_key_down(VK_TAB) || is_key_down('T') || is_key_down('6')) {
-        btn |= KPM_IO_BTN_TRANSFER;
-    }
-    if (is_key_down('Q') || is_key_down(VK_LEFT)) {
-        btn |= KPM_IO_BTN_UPPER_SCREEN_L;
-    }
-    if (is_key_down('E') || is_key_down(VK_RIGHT)) {
-        btn |= KPM_IO_BTN_UPPER_SCREEN_R;
-    }
-
-    s_buttons = btn;
-
-    /* Medal In: mapped bit 9, or '5' / 'M' key (rising edge triggers 1 medal pulse) */
-    bool coin_key = ((pack & (1ULL << 9)) != 0) || is_key_down('5') || is_key_down('M');
+    /* Medal In: mapped bit 9 (rising edge triggers 1 medal pulse) */
+    bool coin_key = (pack & (1ULL << 9)) != 0;
     if (coin_key && !s_coin_key_last) {
         s_coin_pulses++;
         if (s_log_misc) {
