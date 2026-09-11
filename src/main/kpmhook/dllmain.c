@@ -4,6 +4,7 @@
 
 #include "cconfig/cconfig-hook.h"
 #include "kpmhook/config-gfx.h"
+#include "kpmhook/config-io.h"
 #include "kpmhook/config-kpm.h"
 #include "kpmhook/d3d9-hook.h"
 #include "kpmhook/gfx-patch.h"
@@ -87,8 +88,10 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
 
     struct cconfig *config = cconfig_init();
     struct kpmhook_config_gfx config_gfx;
+    struct kpmhook_config_io config_io;
 
     kpmhook_config_gfx_init(config);
+    kpmhook_config_io_init(config);
 
     if (!cconfig_hook_config_init(
             config,
@@ -100,6 +103,7 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     }
 
     kpmhook_config_gfx_get(&config_gfx, config);
+    kpmhook_config_io_get(&config_io, config);
     cconfig_finit(config);
 
     if (!kpm_gfx_patch_verify()) {
@@ -132,7 +136,7 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     kpm_locale_hook_init();
 
     /* Hook PCSub arcade I/O and patch button/medal polling */
-    kpm_io_hook_init();
+    kpm_io_hook_init(config_io.disable_debug_keys);
 
     log_info("kpmhook initialized successfully. Resuming game execution.");
     return TRUE;

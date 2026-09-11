@@ -15,6 +15,7 @@ libs_kpmhook := \
 
 src_kpmhook := \
     config-gfx.c \
+    config-io.c \
     config-kpm.c \
     gfx-patch.c \
     path-hook.c \

@@ -40,6 +40,7 @@ cl %CFLAGS% /c ^
     src\main\cconfig\conf.c ^
     src\main\kpmio\kpmio.c ^
     src\main\kpmhook\config-gfx.c ^
+    src\main\kpmhook\config-io.c ^
     src\main\kpmhook\config-kpm.c ^
     src\main\kpmhook\gfx-patch.c ^
     src\main\kpmhook\d3d9-hook.c ^
@@ -73,6 +74,7 @@ link %LDFLAGS% ^
     %OBJDIR%\conf.obj ^
     %OBJDIR%\kpmio.obj ^
     %OBJDIR%\config-gfx.obj ^
+    %OBJDIR%\config-io.obj ^
     %OBJDIR%\config-kpm.obj ^
     %OBJDIR%\gfx-patch.obj ^
     %OBJDIR%\d3d9-hook.obj ^

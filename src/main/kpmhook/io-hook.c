@@ -8,6 +8,8 @@
 #include "kpmhook/io-hook.h"
 #include "util/log.h"
 
+#define ADDR_KEYBOARD_LOOP_START  0x00411686
+#define ADDR_KEYBOARD_LOOP_END    0x00411C56
 #define ADDR_SUBBOARD_CHECK_JUMP  0x00411CC4
 #define ADDR_DWORD_1ACFCB8        0x01ACFCB8
 
@@ -21,7 +23,7 @@ static void patch_memory(uintptr_t addr, const uint8_t *bytes, size_t len)
     VirtualProtect((void *) addr, len, old_protect, &old_protect);
 }
 
-void kpm_io_hook_init(void)
+void kpm_io_hook_init(bool disable_debug_keys)
 {
     log_info("Initializing PCSub arcade I/O virtualization...");
 
@@ -34,6 +36,36 @@ void kpm_io_hook_init(void)
 
     if (!kpm_io_init(NULL, NULL, NULL)) {
         log_warning("kpm_io_init returned false; falling back to direct emulation");
+    }
+
+    if (disable_debug_keys) {
+        /* In sub_411660:
+         * 0x00411685: push ebp
+         * 0x00411686: mov ebp, [esi]   (8B 2E)
+         * 0x00411688: push 70h         (6A 70)  ; VK_F1
+         * 0x0041168A: call edi         (FF D7)  ; GetAsyncKeyState
+         * ... queries ~60 keys (F1..F10, 1..0, A..Z, Arrows, Numpad) ...
+         * 0x00411C56: push 1Bh                  ; VK_ESCAPE
+         * 0x00411C58: call edi                  ; GetAsyncKeyState(VK_ESCAPE)
+         * 0x00411C5A: test ax, ax
+         * 0x00411C5D: pop ebp
+         * 0x00411C5E: jns short loc_411CA3
+         *
+         * Patching 0x00411686 with a jump to 0x00411C56 (relative offset: +0x5CB)
+         * skips all developer debug keys, avoids any input collisions with kpmio,
+         * preserves clean ESC exit handling, and leaves stack 100% balanced.
+         */
+        static const uint8_t jmp_skip_debug[6] = {
+            0xE9, 0xCB, 0x05, 0x00, 0x00, /* jmp 0x00411C56 */
+            0x90                          /* nop */
+        };
+        patch_memory(ADDR_KEYBOARD_LOOP_START, jmp_skip_debug, sizeof(jmp_skip_debug));
+        log_info(
+            "Disabled built-in developer keyboard debug controls (0x%08X -> 0x%08X)",
+            ADDR_KEYBOARD_LOOP_START,
+            ADDR_KEYBOARD_LOOP_END);
+    } else {
+        log_info("Built-in developer keyboard debug controls are ENABLED");
     }
 
     /* In sub_411660:
