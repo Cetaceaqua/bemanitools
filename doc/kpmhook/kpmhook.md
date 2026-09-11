@@ -1,4 +1,4 @@
-# kpmhook1
+# kpmhook
 
 Hook library for *LovePlus MEDAL Happy Daily Life* (愛相随 MEDAL Happy Daily Life, KPM / KT_SKELETON_ST_DUAL.EXE).
 
@@ -22,8 +22,8 @@ Hook library for *LovePlus MEDAL Happy Daily Life* (愛相随 MEDAL Happy Daily 
 
 ## Usage
 
-Place `kpmhook1.dll` and `inject.exe` in the game's `contents` directory, then launch:
+Place `kpmhook.dll` and `inject.exe` in the game's `contents` directory, then launch:
 
 ```cmd
-inject.exe kpmhook1.dll KT_SKELETON_ST_DUAL.EXE
+inject.exe kpmhook.dll KT_SKELETON_ST_DUAL.EXE
 ```

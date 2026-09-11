@@ -6,8 +6,8 @@
 
 #include "hook/com-proxy.h"
 #include "hook/table.h"
-#include "kpmhook1/config-kpm.h"
-#include "kpmhook1/d3d9-hook.h"
+#include "kpmhook/config-kpm.h"
+#include "kpmhook/d3d9-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 

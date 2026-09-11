@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #include "hook/table.h"
-#include "kpmhook1/locale-hook.h"
+#include "kpmhook/locale-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 

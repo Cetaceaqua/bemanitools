@@ -6,7 +6,7 @@
 #include <string.h>
 
 #include "hook/pe.h"
-#include "kpmhook1/gfx-patch.h"
+#include "kpmhook/gfx-patch.h"
 #include "util/log.h"
 
 static void kpm_gfx_install_texture_crash_hook(void);

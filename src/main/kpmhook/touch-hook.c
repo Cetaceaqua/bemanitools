@@ -4,7 +4,7 @@
 #include <stdbool.h>
 
 #include "hook/table.h"
-#include "kpmhook1/touch-hook.h"
+#include "kpmhook/touch-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 

@@ -1,15 +1,15 @@
-avsdlls += kpmhook1
+avsdlls += kpmhook
 
-ldflags_kpmhook1 := \
+ldflags_kpmhook := \
     -lws2_32
 
-libs_kpmhook1 := \
+libs_kpmhook := \
     hook \
     hooklib \
     cconfig \
     util
 
-src_kpmhook1 := \
+src_kpmhook := \
     config-kpm.c \
     gfx-patch.c \
     path-hook.c \

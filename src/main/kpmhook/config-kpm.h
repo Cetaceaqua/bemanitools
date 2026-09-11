@@ -1,9 +1,9 @@
-#ifndef KPMHOOK1_CONFIG_KPM_H
-#define KPMHOOK1_CONFIG_KPM_H
+#ifndef KPMHOOK_CONFIG_KPM_H
+#define KPMHOOK_CONFIG_KPM_H
 
 #include <stdbool.h>
 
-struct kpmhook1_config {
+struct kpmhook_config {
     bool windowed;
     int station;
 };

@@ -2,19 +2,19 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#include "kpmhook1/config-kpm.h"
-#include "kpmhook1/d3d9-hook.h"
-#include "kpmhook1/gfx-patch.h"
-#include "kpmhook1/locale-hook.h"
-#include "kpmhook1/path-hook.h"
-#include "kpmhook1/sound-hook.h"
-#include "kpmhook1/touch-hook.h"
-#include "kpmhook1/window-hook.h"
+#include "kpmhook/config-kpm.h"
+#include "kpmhook/d3d9-hook.h"
+#include "kpmhook/gfx-patch.h"
+#include "kpmhook/locale-hook.h"
+#include "kpmhook/path-hook.h"
+#include "kpmhook/sound-hook.h"
+#include "kpmhook/touch-hook.h"
+#include "kpmhook/window-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 
-#define KPMHOOK1_INFO_HEADER \
-    "kpmhook1 for LovePlus MEDAL Happy Daily Life" \
+#define KPMHOOK_INFO_HEADER \
+    "kpmhook for LovePlus MEDAL Happy Daily Life" \
     ", build " __DATE__ " " __TIME__
 
 static void crash_log(const char *fmt, ...)
@@ -71,13 +71,13 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     }
 
     DisableThreadLibraryCalls(mod);
-    s_log_file = fopen("kpmhook1.log", "w");
+    s_log_file = fopen("kpmhook.log", "w");
     log_to_writer(kpm_composite_log_writer, NULL);
     AddVectoredExceptionHandler(1, kpm_exception_filter);
 
     log_info("=============================================================");
-    log_info(KPMHOOK1_INFO_HEADER);
-    log_info("Initializing kpmhook1 early process hooks...");
+    log_info(KPMHOOK_INFO_HEADER);
+    log_info("Initializing kpmhook early process hooks...");
     log_info("=============================================================");
 
     if (!kpm_gfx_patch_verify()) {
@@ -109,7 +109,7 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     /* Bootstrap compatibility game.conf if absent */
     kpm_config_bootstrap();
 
-    log_info("kpmhook1 initialized successfully. Resuming game execution.");
+    log_info("kpmhook initialized successfully. Resuming game execution.");
     return TRUE;
 }
 

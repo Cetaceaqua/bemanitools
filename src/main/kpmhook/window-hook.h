@@ -1,5 +1,5 @@
-#ifndef KPMHOOK1_WINDOW_HOOK_H
-#define KPMHOOK1_WINDOW_HOOK_H
+#ifndef KPMHOOK_WINDOW_HOOK_H
+#define KPMHOOK_WINDOW_HOOK_H
 
 #include <windows.h>
 #include <stdbool.h>

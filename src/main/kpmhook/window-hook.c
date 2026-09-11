@@ -5,8 +5,8 @@
 #include <stdint.h>
 
 #include "hook/table.h"
-#include "kpmhook1/config-kpm.h"
-#include "kpmhook1/window-hook.h"
+#include "kpmhook/config-kpm.h"
+#include "kpmhook/window-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 
@@ -146,7 +146,7 @@ static HWND WINAPI my_CreateWindowExW(
         /* Give Station 0 full caption, system menu, minimize button, and clean border */
         dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
         dwExStyle &= ~WS_EX_TOPMOST;
-        lpWindowName = L"LovePlus MEDAL - Main Screen (Station 1)";
+        lpWindowName = L"KPM Main Screen";
 
         /* Station 0 client area is always native 1024x768 landscape */
         int cw = 1024;
@@ -164,7 +164,7 @@ static HWND WINAPI my_CreateWindowExW(
         /* Give Station 1 also a full window and place it side-by-side next to Station 0 */
         dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
         dwExStyle &= ~WS_EX_TOPMOST;
-        lpWindowName = L"LovePlus MEDAL - Sub Screen (Station 2)";
+        lpWindowName = L"KPM Sub Screen";
 
         /* Station 1 is portrait 768x1024 if rotate enabled, else 1024x768 */
         int cw = kpm_config_get_rotate() ? 768 : 1024;

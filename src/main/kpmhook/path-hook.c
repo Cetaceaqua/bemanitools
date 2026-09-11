@@ -7,7 +7,7 @@
 #include <string.h>
 
 #include "hook/table.h"
-#include "kpmhook1/path-hook.h"
+#include "kpmhook/path-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 

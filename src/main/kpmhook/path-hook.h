@@ -1,5 +1,5 @@
-#ifndef KPMHOOK1_PATH_HOOK_H
-#define KPMHOOK1_PATH_HOOK_H
+#ifndef KPMHOOK_PATH_HOOK_H
+#define KPMHOOK_PATH_HOOK_H
 
 /**
  * Initialize kernel32 IAT hooks for redirecting hardcoded D:\KPM and E:\ paths.

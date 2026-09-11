@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "kpmhook1/config-kpm.h"
+#include "kpmhook/config-kpm.h"
 #include "util/log.h"
 
 void kpm_config_bootstrap(void)

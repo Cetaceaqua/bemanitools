@@ -1,5 +1,5 @@
-#ifndef KPMHOOK1_GFX_PATCH_H
-#define KPMHOOK1_GFX_PATCH_H
+#ifndef KPMHOOK_GFX_PATCH_H
+#define KPMHOOK_GFX_PATCH_H
 
 #include <stdbool.h>
 

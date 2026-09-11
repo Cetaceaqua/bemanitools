@@ -6,8 +6,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "kpmhook1/sound-hook.h"
-#include "kpmhook1/path-hook.h"
+#include "kpmhook/sound-hook.h"
+#include "kpmhook/path-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 

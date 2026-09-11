@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo ========================================================
-echo Building kpmhook1.dll (Win32 / x86 Static CRT)
+echo Building kpmhook.dll (Win32 / x86 Static CRT)
 echo ========================================================
 
 set VCVARS="D:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat"
@@ -16,10 +16,10 @@ if errorlevel 1 exit /b 1
 
 set OUTDIR=build\bin
 if not exist %OUTDIR% mkdir %OUTDIR%
-set OBJDIR=build\obj\kpmhook1
+set OBJDIR=build\obj\kpmhook
 if not exist %OBJDIR% mkdir %OBJDIR%
 
-set CFLAGS=/nologo /O2 /MT /W3 /I src /I src/main /DPSAPI_VERSION=1 /DBUILD_MODULE=kpmhook1 /DCOBJMACROS /D_CRT_SECURE_NO_WARNINGS /Fo%OBJDIR%\ /Fd%OBJDIR%\
+set CFLAGS=/nologo /O2 /MT /W3 /I src /I src/main /DPSAPI_VERSION=1 /DBUILD_MODULE=kpmhook /DCOBJMACROS /D_CRT_SECURE_NO_WARNINGS /Fo%OBJDIR%\ /Fd%OBJDIR%\
 
 cl %CFLAGS% /c ^
     src\main\hook\pe.c ^
@@ -29,18 +29,18 @@ cl %CFLAGS% /c ^
     src\main\util\log.c ^
     src\main\util\mem.c ^
     src\main\util\str.c ^
-    src\main\kpmhook1\dllmain.c ^
-    src\main\kpmhook1\gfx-patch.c ^
-    src\main\kpmhook1\d3d9-hook.c ^
-    src\main\kpmhook1\path-hook.c ^
-    src\main\kpmhook1\config-kpm.c ^
-    src\main\kpmhook1\touch-hook.c ^
-    src\main\kpmhook1\sound-hook.c ^
-    src\main\kpmhook1\window-hook.c ^
-    src\main\kpmhook1\locale-hook.c
+    src\main\kpmhook\dllmain.c ^
+    src\main\kpmhook\gfx-patch.c ^
+    src\main\kpmhook\d3d9-hook.c ^
+    src\main\kpmhook\path-hook.c ^
+    src\main\kpmhook\config-kpm.c ^
+    src\main\kpmhook\touch-hook.c ^
+    src\main\kpmhook\sound-hook.c ^
+    src\main\kpmhook\window-hook.c ^
+    src\main\kpmhook\locale-hook.c
 if errorlevel 1 exit /b 1
 
-set LDFLAGS=/nologo /DLL /DEF:src\main\kpmhook1\kpmhook1.def /OUT:%OUTDIR%\kpmhook1.dll
+set LDFLAGS=/nologo /DLL /DEF:src\main\kpmhook\kpmhook.def /OUT:%OUTDIR%\kpmhook.dll
 
 link %LDFLAGS% ^
     %OBJDIR%\pe.obj ^
@@ -64,5 +64,5 @@ if errorlevel 1 exit /b 1
 
 echo.
 echo ========================================================
-echo Successfully built %OUTDIR%\kpmhook1.dll
+echo Successfully built %OUTDIR%\kpmhook.dll
 echo ========================================================
