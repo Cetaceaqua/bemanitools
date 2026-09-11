@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "bemanitools/input.h"
 #include "bemanitools/kpmio.h"
 
 static log_formatter_t s_log_misc = NULL;
@@ -30,6 +31,8 @@ void kpm_io_set_loggers(
     s_log_info = info;
     s_log_warning = warning;
     s_log_fatal = fatal;
+
+    input_set_loggers(misc, info, warning, fatal);
 }
 
 bool kpm_io_init(
@@ -38,19 +41,28 @@ bool kpm_io_init(
     thread_destroy_t thread_destroy)
 {
     if (s_log_info) {
-        s_log_info("kpmio", "kpmio backend initialized");
+        s_log_info("kpmio", "kpmio backend initializing...");
     }
+
+    input_init(thread_create, thread_join, thread_destroy);
+    mapper_config_load("kpm");
+
     s_buttons = 0;
     s_coin_pulses = 0;
     s_coin_key_last = false;
     s_hopper_state = 0;
     s_payout_demanded = 0;
     s_payout_paid = 0;
+
+    if (s_log_info) {
+        s_log_info("kpmio", "kpmio backend initialized successfully");
+    }
     return true;
 }
 
 void kpm_io_fini(void)
 {
+    input_fini();
     if (s_log_info) {
         s_log_info("kpmio", "kpmio backend shutdown");
     }
@@ -63,61 +75,46 @@ static bool is_key_down(int vk)
 
 bool kpm_io_read_inputs(void)
 {
-    uint16_t btn = 0;
+    uint64_t pack = mapper_update();
+    uint16_t btn = (uint16_t)(pack & 0x01FF); /* Bits 0..8 configured via config.exe */
 
-    /* TEST switch: F1 */
+    /* Default keyboard fallbacks for quick play without config.exe setup */
     if (is_key_down(VK_F1)) {
         btn |= KPM_IO_BTN_TEST;
     }
-
-    /* RESET KEY: F2 */
     if (is_key_down(VK_F2)) {
         btn |= KPM_IO_BTN_RESET_KEY;
     }
-
-    /* 1 BET: '1' or NumPad 1 */
     if (is_key_down('1') || is_key_down(VK_NUMPAD1)) {
         btn |= KPM_IO_BTN_1BET;
     }
-
-    /* MAX BET: '2' or NumPad 2 */
     if (is_key_down('2') || is_key_down(VK_NUMPAD2)) {
         btn |= KPM_IO_BTN_MAXBET;
     }
-
-    /* START / REPEAT: Space, Enter, or '3' */
     if (is_key_down(VK_SPACE) || is_key_down(VK_RETURN) || is_key_down('3')) {
         btn |= KPM_IO_BTN_START_REPEAT;
     }
-
-    /* COLLECT / PAYOUT: Backspace, 'C', or '4' */
     if (is_key_down(VK_BACK) || is_key_down('C') || is_key_down('4')) {
         btn |= KPM_IO_BTN_COLLECT_PAYOUT;
     }
-
-    /* TRANSFER: Tab, 'T', or '6' */
     if (is_key_down(VK_TAB) || is_key_down('T') || is_key_down('6')) {
         btn |= KPM_IO_BTN_TRANSFER;
     }
-
-    /* UPPER SCREEN L: 'Q' or Left Arrow */
     if (is_key_down('Q') || is_key_down(VK_LEFT)) {
         btn |= KPM_IO_BTN_UPPER_SCREEN_L;
     }
-
-    /* UPPER SCREEN R: 'E' or Right Arrow */
     if (is_key_down('E') || is_key_down(VK_RIGHT)) {
         btn |= KPM_IO_BTN_UPPER_SCREEN_R;
     }
 
     s_buttons = btn;
 
-    /* Medal In: '5' or 'M' key (rising edge triggers 1 medal insertion) */
-    bool coin_key = is_key_down('5') || is_key_down('M');
+    /* Medal In: mapped bit 9, or '5' / 'M' key (rising edge triggers 1 medal pulse) */
+    bool coin_key = ((pack & (1ULL << 9)) != 0) || is_key_down('5') || is_key_down('M');
     if (coin_key && !s_coin_key_last) {
         s_coin_pulses++;
         if (s_log_misc) {
-            s_log_misc("kpmio", "Medal inserted via keyboard trigger (total pending: %u)", s_coin_pulses);
+            s_log_misc("kpmio", "Medal inserted (pending pulses: %u)", s_coin_pulses);
         }
     }
     s_coin_key_last = coin_key;
@@ -174,5 +171,7 @@ uint8_t kpm_io_get_payout_status(uint16_t *paid_count)
 
 void kpm_io_set_lamps(uint32_t lamp_bits)
 {
-    /* Reserved for physical / external LED controller integration */
+    for (uint8_t i = 0; i < 7; i++) {
+        mapper_write_light(i, (lamp_bits & (1 << i)) ? 255 : 0);
+    }
 }

@@ -283,6 +283,29 @@ static const struct action_def bst_actions[] = {
     {0x04, IDS_GENERIC_SERVICE},
 };
 
+static const struct action_def kpm_actions[] = {
+    {0x00, IDS_GENERIC_TEST},
+    {0x01, IDS_KPM_1_BET},
+    {0x02, IDS_KPM_MAX_BET},
+    {0x03, IDS_KPM_START},
+    {0x04, IDS_KPM_PAYOUT},
+    {0x05, IDS_KPM_RESET},
+    {0x06, IDS_KPM_TRANSFER},
+    {0x07, IDS_KPM_UPPER_L},
+    {0x08, IDS_KPM_UPPER_R},
+    {0x09, IDS_KPM_COIN},
+};
+
+static const struct light_def kpm_lights[] = {
+    {0x00, IDS_KPM_1_BET},
+    {0x01, IDS_KPM_MAX_BET},
+    {0x02, IDS_KPM_START},
+    {0x03, IDS_KPM_PAYOUT},
+    {0x04, IDS_KPM_TRANSFER},
+    {0x05, IDS_KPM_UPPER_L},
+    {0x06, IDS_KPM_UPPER_R},
+};
+
 static const struct eam_unit_def schema_eam_unit_defs[] = {
     {IDS_READER_P1, 0}, {IDS_READER_P2, 1}};
 
@@ -381,6 +404,17 @@ const struct schema schemas[] = {
      lengthof(bst_actions),
      NULL,
      0,
+     NULL,
+     0,
+     schema_eam_unit_defs,
+     1},
+
+    {"kpm",
+     IDS_KPM_SCHEMA,
+     kpm_actions,
+     lengthof(kpm_actions),
+     kpm_lights,
+     lengthof(kpm_lights),
      NULL,
      0,
      schema_eam_unit_defs,

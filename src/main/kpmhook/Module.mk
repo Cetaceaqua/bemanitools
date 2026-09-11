@@ -1,4 +1,4 @@
-avsdlls += kpmhook
+dlls += kpmhook
 
 ldflags_kpmhook := \
     -lws2_32 \

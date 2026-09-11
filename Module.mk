@@ -175,6 +175,8 @@ include src/main/jbhook-util-p3io/Module.mk
 include src/main/jbhook1/Module.mk
 include src/main/jbhook2/Module.mk
 include src/main/jbhook3/Module.mk
+include src/main/kpmhook/Module.mk
+include src/main/kpmio/Module.mk
 include src/main/launcher/Module.mk
 include src/main/mempatch-hook/Module.mk
 include src/main/mm/Module.mk
@@ -816,6 +818,20 @@ $(zipdir)/popn-15-to-18.zip: \
 	$(V)echo ... $@
 	$(V)zip -j $@ $^
 
+$(zipdir)/kpm.zip: \
+		build/bin/indep-32/inject.exe \
+		build/bin/indep-32/config.exe \
+		build/bin/indep-32/eamio.dll \
+		build/bin/indep-32/geninput.dll \
+		build/bin/indep-32/kpmhook.dll \
+		build/bin/indep-32/kpmio.dll \
+		dist/kpm/config.bat \
+		dist/kpm/gamestart.bat \
+		dist/kpm/kpmhook.conf \
+		| $(zipdir)/
+	$(V)echo ... $@
+	$(V)zip -j $@ $^
+
 $(zipdir)/doc.zip: \
 		doc/ \
 		| $(zipdir)/
@@ -879,6 +895,7 @@ $(BUILDDIR)/bemanitools.zip: \
 		$(zipdir)/jb-05-to-07.zip \
 		$(zipdir)/jb-08.zip \
 		$(zipdir)/jb-hwio.zip \
+		$(zipdir)/kpm.zip \
 		$(zipdir)/popn-15-to-18.zip \
 		$(zipdir)/sdvx-01-to-04.zip \
 		$(zipdir)/sdvx-05-to-06.zip \
