@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "cconfig/cconfig-hook.h"
+#include "cconfig/cconfig-main.h"
 #include "eamhook/config.h"
 #include "eamhook/eamuse.h"
 #include "eamhook/path.h"
@@ -121,8 +122,37 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
 
     eamhook_config_init(config);
 
-    if (!cconfig_hook_config_init(
+    const char *def_conf = NULL;
+    char conf_path[MAX_PATH];
+
+    /* Check 1: contents\eamhook.conf (next to eamhook.dll) */
+    GetModuleFileNameA(h_self, conf_path, sizeof(conf_path));
+    char *p = strrchr(conf_path, '\\');
+    if (!p) p = strrchr(conf_path, '/');
+    if (p) {
+        *(p + 1) = '\0';
+        strncat(conf_path, "eamhook.conf", sizeof(conf_path) - strlen(conf_path) - 1);
+        if (GetFileAttributesA(conf_path) != INVALID_FILE_ATTRIBUTES) {
+            def_conf = conf_path;
+        }
+    }
+
+    /* Check 2: current directory eamhook.conf */
+    if (!def_conf && GetFileAttributesA("eamhook.conf") != INVALID_FILE_ATTRIBUTES) {
+        def_conf = "eamhook.conf";
+    }
+
+    /* Check 3: eamuse\eamhook.conf */
+    if (!def_conf && GetFileAttributesA("eamuse\\eamhook.conf") != INVALID_FILE_ATTRIBUTES) {
+        def_conf = "eamuse\\eamhook.conf";
+    }
+
+    if (!cconfig_main_config_init(
             config,
+            "--config",
+            def_conf,
+            "--help",
+            "-h",
             EAMHOOK_INFO_HEADER "\n" EAMHOOK_CMD_USAGE,
             CCONFIG_CMD_USAGE_OUT_DBG)) {
         cconfig_finit(config);
