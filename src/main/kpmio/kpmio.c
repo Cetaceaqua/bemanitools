@@ -8,8 +8,6 @@
 
 static log_formatter_t s_log_misc = NULL;
 static log_formatter_t s_log_info = NULL;
-static log_formatter_t s_log_warning = NULL;
-static log_formatter_t s_log_fatal = NULL;
 
 static uint16_t s_buttons = 0;
 static uint16_t s_coin_pulses = 0;
@@ -29,8 +27,6 @@ void kpm_io_set_loggers(
 {
     s_log_misc = misc;
     s_log_info = info;
-    s_log_warning = warning;
-    s_log_fatal = fatal;
 
     input_set_loggers(misc, info, warning, fatal);
 }
