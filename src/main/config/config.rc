@@ -429,4 +429,10 @@ STRINGTABLE
     IDS_KPM_UPPER_L               "Upper Screen L"
     IDS_KPM_UPPER_R               "Upper Screen R"
     IDS_KPM_COIN                  "Coin"
+    IDS_KPM_LAMP_POP_L_R          "POP LED Left (Red)"
+    IDS_KPM_LAMP_POP_L_G          "POP LED Left (Green)"
+    IDS_KPM_LAMP_POP_L_B          "POP LED Left (Blue)"
+    IDS_KPM_LAMP_POP_R_R          "POP LED Right (Red)"
+    IDS_KPM_LAMP_POP_R_G          "POP LED Right (Green)"
+    IDS_KPM_LAMP_POP_R_B          "POP LED Right (Blue)"
 }

@@ -29,14 +29,17 @@ enum kpm_io_button_bit {
  * Cabinet console and illumination lamps.
  */
 enum kpm_io_lamp_bit {
-    KPM_IO_LAMP_1BET           = (1 << 0),
-    KPM_IO_LAMP_MAXBET         = (1 << 1),
-    KPM_IO_LAMP_START_REPEAT   = (1 << 2),
-    KPM_IO_LAMP_COLLECT_PAYOUT = (1 << 3),
-    KPM_IO_LAMP_TRANSFER       = (1 << 4),
-    KPM_IO_LAMP_UPPER_L        = (1 << 5),
-    KPM_IO_LAMP_UPPER_R        = (1 << 6),
-    KPM_IO_LAMP_HOPPER_ERROR   = (1 << 7),
+    KPM_IO_LAMP_1BET           = (1 << 0),  /* 1 Bet button lamp (offset 356) */
+    KPM_IO_LAMP_MAXBET         = (1 << 1),  /* Max Bet button lamp (offset 357) */
+    KPM_IO_LAMP_START_REPEAT   = (1 << 2),  /* Start / Repeat button lamp (offset 358) */
+    KPM_IO_LAMP_COLLECT_PAYOUT = (1 << 3),  /* Collect / Payout button lamp (offset 359) */
+    KPM_IO_LAMP_TRANSFER       = (1 << 4),  /* Transfer button lamp (offset 360) */
+    KPM_IO_LAMP_POP_L_RED      = (1 << 5),  /* Billboard POP LED Left Red (offset 361) */
+    KPM_IO_LAMP_POP_L_GREEN    = (1 << 6),  /* Billboard POP LED Left Green (offset 362) */
+    KPM_IO_LAMP_POP_L_BLUE     = (1 << 7),  /* Billboard POP LED Left Blue (offset 363) */
+    KPM_IO_LAMP_POP_R_RED      = (1 << 8),  /* Billboard POP LED Right Red (offset 364) */
+    KPM_IO_LAMP_POP_R_GREEN    = (1 << 9),  /* Billboard POP LED Right Green (offset 365) */
+    KPM_IO_LAMP_POP_R_BLUE     = (1 << 10), /* Billboard POP LED Right Blue (offset 366) */
 };
 
 /**

@@ -110,4 +110,16 @@ void kpm_io_hook_update(void)
         *((uint16_t *) (subwrap_base + 508)) += coins;
         log_info("Dispatched %u medal pulses to CPcSubWrap", coins);
     }
+
+    /* Offsets 356..366 (0x164..0x16E): Hardware Lamp states
+     * 2 = OFF, 4 = ON, 1/3 = blinking/flashing. Any value != 2 and != 0 is active.
+     */
+    uint32_t lamp_bits = 0;
+    for (int i = 0; i < 11; i++) {
+        uint8_t state = subwrap_base[356 + i];
+        if (state != 2 && state != 0) {
+            lamp_bits |= (1 << i);
+        }
+    }
+    kpm_io_set_lamps(lamp_bits);
 }

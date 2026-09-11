@@ -302,8 +302,12 @@ static const struct light_def kpm_lights[] = {
     {0x02, IDS_KPM_START},
     {0x03, IDS_KPM_PAYOUT},
     {0x04, IDS_KPM_TRANSFER},
-    {0x05, IDS_KPM_UPPER_L},
-    {0x06, IDS_KPM_UPPER_R},
+    {0x05, IDS_KPM_LAMP_POP_L_R},
+    {0x06, IDS_KPM_LAMP_POP_L_G},
+    {0x07, IDS_KPM_LAMP_POP_L_B},
+    {0x08, IDS_KPM_LAMP_POP_R_R},
+    {0x09, IDS_KPM_LAMP_POP_R_G},
+    {0x0A, IDS_KPM_LAMP_POP_R_B},
 };
 
 static const struct eam_unit_def schema_eam_unit_defs[] = {
