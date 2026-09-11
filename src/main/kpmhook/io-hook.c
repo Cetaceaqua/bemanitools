@@ -10,6 +10,7 @@
 #include "kpmhook/config-io.h"
 #include "kpmhook/io-hook.h"
 #include "util/log.h"
+#include "util/thread.h"
 
 #define ADDR_KEYBOARD_LOOP_START  0x00411686
 #define ADDR_KEYBOARD_LOOP_END    0x00411C56
@@ -106,16 +107,8 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
     log_info("Initializing PCSub arcade I/O virtualization...");
     s_cfg = *cfg;
 
-    /* Initialize kpmio backend */
-    kpm_io_set_loggers(
-        log_impl_misc,
-        log_impl_info,
-        log_impl_warning,
-        log_impl_fatal);
-
-    if (!kpm_io_init(NULL, NULL, NULL)) {
-        log_warning("kpm_io_init returned false; falling back to direct emulation");
-    }
+    /* Note: kpm_io_init is deferred to kpm_io_hook_update() on the first frame
+     * to avoid Windows Loader Lock deadlock during DllMain process attach. */
 
     if (cfg->disable_debug_keys) {
         static const uint8_t jmp_skip_debug[6] = {
@@ -283,6 +276,24 @@ void kpm_io_hook_update(void)
 {
     if (!s_io_initialized) {
         return;
+    }
+
+    static bool s_backend_ready = false;
+    if (!s_backend_ready) {
+        s_backend_ready = true;
+        log_info("Initializing kpmio backend outside loader lock...");
+        kpm_io_set_loggers(
+            log_impl_misc,
+            log_impl_info,
+            log_impl_warning,
+            log_impl_fatal);
+
+        if (!kpm_io_init(
+                crt_thread_create, crt_thread_join, crt_thread_destroy)) {
+            log_warning("kpm_io_init returned false; falling back to direct emulation");
+        } else {
+            log_info("kpmio backend initialized successfully");
+        }
     }
 
     kpm_io_read_inputs();
