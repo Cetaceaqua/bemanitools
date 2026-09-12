@@ -395,6 +395,17 @@ void kpm_io_hook_update(void)
         if ((b_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SIDE_R_B;
     }
 
+    static uint32_t s_last_logged_lamp_bits = 0xFFFFFFFF;
+    if (lamp_bits != s_last_logged_lamp_bits) {
+        log_info(
+            "Lamp bits changed: 0x%08X (Btns: 0x%02X, POP: 0x%02X, Zones: 0x%03X)",
+            lamp_bits,
+            lamp_bits & 0x1F,
+            (lamp_bits >> 5) & 0x3F,
+            (lamp_bits >> 11) & 0xFFF);
+        s_last_logged_lamp_bits = lamp_bits;
+    }
+
     kpm_io_set_lamps(lamp_bits);
 
     /* Push raw 110-LED frame to DIY serial port if enabled */

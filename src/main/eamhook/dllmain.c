@@ -89,6 +89,23 @@ static BOOL WINAPI my_TerminateProcess(HANDLE hProcess, UINT uExitCode)
     return real_TerminateProcess(hProcess, uExitCode);
 }
 
+static void __cdecl hooked_CLogEamuse_Put(const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    size_t len = strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\r' || buf[len - 1] == '\n')) {
+        buf[--len] = '\0';
+    }
+    if (len > 0) {
+        log_info("eam_if: %s", buf);
+    }
+}
+
 static const struct hook_symbol eam_exit_syms[] = {
     { .name = "ExitProcess",      .patch = my_ExitProcess,      .link = (void **) &real_ExitProcess },
     { .name = "TerminateProcess", .patch = my_TerminateProcess, .link = (void **) &real_TerminateProcess },
@@ -183,6 +200,20 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
             log_info("Invoked CEamuseUtil::SetNoWMIMode() (bypassing WMI and domain check)");
         } else {
             log_warning("Could not find ?SetNoWMIMode@CEamuseUtil@@SAXXZ in eam3util.dll");
+        }
+
+        /* Hook CLogEamuse::Put to forward internal e-AMUSEMENT logs to eamhook.log */
+        void *p_put = (void *) GetProcAddress(eam3util, "?Put@CLogEamuse@@SAXPBDZZ");
+        if (p_put) {
+            DWORD old_prot;
+            if (VirtualProtect(p_put, 5, PAGE_EXECUTE_READWRITE, &old_prot)) {
+                uint8_t *code = (uint8_t *) p_put;
+                code[0] = 0xE9; /* jmp rel32 */
+                int32_t rel = (int32_t) ((uint8_t *) hooked_CLogEamuse_Put - (code + 5));
+                memcpy(&code[1], &rel, 4);
+                VirtualProtect(p_put, 5, old_prot, &old_prot);
+                log_info("Installed CLogEamuse::Put hook to capture eam_if diagnostics");
+            }
         }
     }
 

@@ -130,27 +130,40 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
         return;
     }
 
-    uint8_t c_cmd = cmd[2];
-    uint8_t c_subcmd = cmd[3];
+    uint8_t seq = (len > 1) ? cmd[1] : 0x00;
+    uint8_t node = (len > 2) ? cmd[2] : 0x01;
+    uint8_t c_cmd = (len > 3) ? cmd[3] : 0x00;
+    uint8_t c_subcmd = (len > 4) ? cmd[4] : 0x00;
 
-    /* Card polling query: cmd=0x01, subcmd=0x34 (e.g. AA 00 01 34 01 10 46) */
-    if (c_cmd == 0x01 && c_subcmd == 0x34) {
+    /* Card polling query: cmd=0x34 (e.g. AA 00 01 34 00 01 10 46) */
+    if (c_cmd == 0x34) {
         static bool s_logged_first_poll = false;
         if (!s_logged_first_poll) {
             s_logged_first_poll = true;
-            log_info("Game started card reader RFID polling loop (cmd 0x01:0x34)");
+            log_info("Game started card reader RFID polling loop (cmd 0x34)");
         }
 
         ensure_eamio_initialized();
         eam_io_poll(0);
         uint8_t sensor = eam_io_get_sensor_state(0);
 
-        /* Automatic keyboard fallback: if eamio has no HID device configured in config.exe,
-           check NumPad Plus (VK_ADD) and standard Plus/Equal (VK_OEM_PLUS) */
-        if (!sensor) {
-            if ((GetAsyncKeyState(VK_ADD) & 0x8000) || (GetAsyncKeyState(VK_OEM_PLUS) & 0x8000)) {
-                sensor = (1 << EAM_IO_SENSOR_FRONT) | (1 << EAM_IO_SENSOR_BACK);
+        /* Latch card insertion for 3 seconds to ensure both Test Mode (1Hz refresh)
+           and game polling state machines capture the card reliably */
+        static DWORD s_card_latch_until = 0;
+        DWORD now = GetTickCount();
+
+        bool key_pressed = ((GetAsyncKeyState(VK_ADD) & 0x8000) ||
+                            (GetAsyncKeyState(VK_OEM_PLUS) & 0x8000) ||
+                            (GetAsyncKeyState(VK_INSERT) & 0x8000));
+        if (key_pressed || sensor != 0) {
+            if (now >= s_card_latch_until) {
+                log_info("Card insert triggered (holding for 3.0s)...");
             }
+            s_card_latch_until = now + 3000;
+        }
+
+        if (now < s_card_latch_until) {
+            sensor = (1 << EAM_IO_SENSOR_FRONT) | (1 << EAM_IO_SENSOR_BACK);
         }
 
         if (sensor != 0) {
@@ -194,23 +207,46 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
             /* 1 = ISO15693 (e-Amusement Pass), 0 = FeliCa */
             uint8_t kpm_card_type = (card_type == EAM_IO_CARD_FELICA) ? 0 : 1;
 
-            uint8_t resp[18];
+            /* Full 19-byte RFID detection response:
+               [0] 0xAA (Sync)
+               [1] Seq
+               [2] Node (0x01)
+               [3] Cmd (0x34)
+               [4] Subcmd (0x00)
+               [5] Length (0x0C = 12 payload bytes)
+               [6] Status (0x01: card present, non-zero and != 4)
+               [7] CardType (1: ISO15693, 0: FeliCa)
+               [8..15] 8-byte UID transmitted in RF Little-Endian (reversed) order so
+                       that the unpacking loop in sub_507C90 restores [uid0..uid7] at [168..175]
+               [16] 0x00
+               [17] 0x00
+               [18] Checksum (sum of bytes 1..17)
+            */
+            uint8_t resp[19];
             resp[0] = 0xAA;
-            resp[1] = 0x00;
-            resp[2] = 0x01;
+            resp[1] = seq;
+            resp[2] = node;
             resp[3] = 0x34;
-            resp[4] = 0x0C; /* 12 payload bytes */
-            resp[5] = 0x01; /* Status: card present (non-zero, != 4) */
-            resp[6] = kpm_card_type;
-            memcpy(&resp[7], uid, 8);
-            resp[15] = 0x00;
+            resp[4] = 0x00;
+            resp[5] = 0x0C; /* 12 payload bytes */
+            resp[6] = 0x01; /* Status: card present */
+            resp[7] = kpm_card_type;
+            resp[8]  = uid[7];
+            resp[9]  = uid[6];
+            resp[10] = uid[5];
+            resp[11] = uid[4];
+            resp[12] = uid[3];
+            resp[13] = uid[2];
+            resp[14] = uid[1];
+            resp[15] = uid[0];
             resp[16] = 0x00;
+            resp[17] = 0x00;
 
             uint8_t csum = 0;
-            for (int i = 1; i <= 16; i++) {
+            for (int i = 1; i <= 17; i++) {
                 csum += resp[i];
             }
-            resp[17] = csum;
+            resp[18] = csum;
 
             queue_response(resp, sizeof(resp));
             log_info(
@@ -218,29 +254,36 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
                 kpm_card_type ? "ISO15693" : "FeliCa",
                 uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6], uid[7]);
         } else {
-            /* No card present: idle response */
-            uint8_t resp[7];
+            /* No card present: 8-byte idle response:
+               [0] 0xAA, [1] seq, [2] node, [3] 0x34, [4] 0x00, [5] 0x01, [6] 0x00 (Status: no card), [7] csum
+            */
+            uint8_t resp[8];
             resp[0] = 0xAA;
-            resp[1] = 0x00;
-            resp[2] = 0x01;
+            resp[1] = seq;
+            resp[2] = node;
             resp[3] = 0x34;
-            resp[4] = 0x01;
-            resp[5] = 0x00; /* No card */
-            resp[6] = (uint8_t)(resp[1] + resp[2] + resp[3] + resp[4] + resp[5]);
+            resp[4] = 0x00;
+            resp[5] = 0x01; /* 1 payload byte */
+            resp[6] = 0x00; /* No card */
+            resp[7] = (uint8_t)(resp[1] + resp[2] + resp[3] + resp[4] + resp[5] + resp[6]);
             queue_response(resp, sizeof(resp));
         }
         return;
     }
 
-    /* Generic ACK for setup/handshake commands (states 2, 4, 6, 8, 10, 12, 14) */
-    uint8_t resp[7];
+    /* Generic 8-byte ACK for setup/handshake/LED/buzzer commands:
+       States 2, 4, 6, 8, 10, 12 (0x38), 14 (0x61), etc.
+       [0] 0xAA, [1] seq, [2] node, [3] c_cmd, [4] c_subcmd, [5] 0x01, [6] 0x00 (Status OK), [7] csum
+    */
+    uint8_t resp[8];
     resp[0] = 0xAA;
-    resp[1] = 0x00;
-    resp[2] = c_cmd;
-    resp[3] = c_subcmd;
-    resp[4] = 0x01;
-    resp[5] = 0x00; /* Status OK */
-    resp[6] = (uint8_t)(resp[1] + resp[2] + resp[3] + resp[4] + resp[5]);
+    resp[1] = seq;
+    resp[2] = node;
+    resp[3] = c_cmd;
+    resp[4] = c_subcmd;
+    resp[5] = 0x01;
+    resp[6] = 0x00; /* Status OK */
+    resp[7] = (uint8_t)(resp[1] + resp[2] + resp[3] + resp[4] + resp[5] + resp[6]);
     queue_response(resp, sizeof(resp));
 }
 

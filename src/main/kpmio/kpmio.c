@@ -131,7 +131,16 @@ uint8_t kpm_io_get_payout_status(uint16_t *paid_count)
 
 void kpm_io_set_lamps(uint32_t lamp_bits)
 {
+    static uint32_t s_last_bits = 0xFFFFFFFF;
+    if (lamp_bits != s_last_bits) {
+        if (s_log_info) {
+            s_log_info("kpmio", "kpm_io_set_lamps: 0x%08X", lamp_bits);
+        }
+        s_last_bits = lamp_bits;
+    }
+
     for (uint8_t i = 0; i < 23; i++) {
         mapper_write_light(i, (lamp_bits & (1 << i)) ? 255 : 0);
     }
 }
+

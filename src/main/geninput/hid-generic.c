@@ -308,10 +308,13 @@ hid_generic_set_light(struct hid *hid, size_t light_no, uint32_t intensity)
         return false;
     }
 
+    /* Update internal report buffer */
+    bool ok = hid_meta_out_set_light(&hg->meta_out, light_no, intensity);
+
     /* Lazily start the lighting double-buffer chain (see hid_generic_init) */
 
     if (!hg->out_started && !hg->out_faulty) {
-        log_misc("Starting light output to %s", hg->dev_node);
+        log_info("Starting light output to %s (%s)", hg->strings.str_prod, hg->dev_node);
         hid_meta_out_get_next_report(&hg->meta_out, hg->out_buf);
 
         if (!WriteFile(
@@ -330,7 +333,7 @@ hid_generic_set_light(struct hid *hid, size_t light_no, uint32_t intensity)
         hg->out_started = true;
     }
 
-    return hid_meta_out_set_light(&hg->meta_out, light_no, intensity);
+    return ok;
 }
 
 static bool
@@ -343,6 +346,20 @@ hid_generic_handle_event(struct hid_fd *hid_fd, OVERLAPPED *ovl, size_t nbytes)
 
         hid_meta_out_get_next_report(&hg->meta_out, hg->out_buf);
         memset(&hg->out_ovl, 0, sizeof(hg->out_ovl));
+
+        static uint8_t s_last_report[64];
+        static bool s_has_last = false;
+        if (!s_has_last || memcmp(s_last_report, hg->out_buf, hg->out_nbytes) != 0) {
+            memcpy(s_last_report, hg->out_buf, hg->out_nbytes);
+            s_has_last = true;
+            log_info(
+                "hid-generic: OUT report to %s: [%02X %02X %02X %02X]",
+                hg->strings.str_prod,
+                hg->out_buf[0],
+                hg->out_nbytes > 1 ? hg->out_buf[1] : 0,
+                hg->out_nbytes > 2 ? hg->out_buf[2] : 0,
+                hg->out_nbytes > 3 ? hg->out_buf[3] : 0);
+        }
 
         if (!WriteFile(
                 hg->fd, hg->out_buf, hg->out_nbytes, NULL, &hg->out_ovl) &&

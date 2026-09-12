@@ -268,7 +268,7 @@ static void light_mapping_bind(struct light_mapping *lm)
     struct hid_light *light_defs;
     size_t nlights;
 
-    lm->bound = true;
+    lm->bound = false;
     lm->valid = false;
 
     if (lm->dest.hid == NULL) {
@@ -294,6 +294,16 @@ static void light_mapping_bind(struct light_mapping *lm)
     lm->affine_bias = light->value_min;
     lm->affine_scale = light->value_max - light->value_min;
     lm->valid = true;
+    lm->bound = true;
+
+    log_info(
+        "mapper: bound game_light %u -> dev %s light %u (min=%d, max=%d, scale=%.1f)",
+        lm->game_light,
+        hid_stub_get_dev_node(lm->dest.hid),
+        (unsigned int) lm->dest.light_no,
+        lm->affine_bias,
+        light->value_max,
+        lm->affine_scale);
 
 read_fail:
     free(light_defs);
