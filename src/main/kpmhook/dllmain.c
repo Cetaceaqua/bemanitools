@@ -15,7 +15,9 @@
 #include "kpmhook/window-hook.h"
 #include "kpmhook/io-hook.h"
 #include "kpmhook/reader-hook.h"
+#include "kpmhook/movie-hook.h"
 #include "util/defs.h"
+
 #include "util/log.h"
 
 #define KPMHOOK_INFO_HEADER \
@@ -23,42 +25,6 @@
     ", build " __DATE__ " " __TIME__
 #define KPMHOOK_CMD_USAGE \
     "Usage: inject.exe kpmhook.dll KT_SKELETON_ST_DUAL.EXE [options...]"
-
-static void crash_log(const char *fmt, ...)
-{
-    char buf[1024];
-    va_list ap;
-    va_start(ap, fmt);
-    int len = vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-
-    HANDLE h = CreateFileA("crash.log", FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h != INVALID_HANDLE_VALUE) {
-        DWORD written;
-        WriteFile(h, buf, len, &written, NULL);
-        CloseHandle(h);
-    }
-}
-
-static LONG WINAPI kpm_exception_filter(PEXCEPTION_POINTERS ep)
-{
-    if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
-        crash_log("CRASH ACCESS_VIOLATION at EIP=0x%08lx: %s address 0x%08lx\r\n",
-                  ep->ContextRecord->Eip,
-                  ep->ExceptionRecord->ExceptionInformation[0] == 1 ? "write to" :
-                  ep->ExceptionRecord->ExceptionInformation[0] == 8 ? "DEP execute at" : "read from",
-                  ep->ExceptionRecord->ExceptionInformation[1]);
-        crash_log("Registers: EAX=0x%08lx EBX=0x%08lx ECX=0x%08lx EDX=0x%08lx ESI=0x%08lx EDI=0x%08lx EBP=0x%08lx ESP=0x%08lx\r\n",
-                  ep->ContextRecord->Eax, ep->ContextRecord->Ebx, ep->ContextRecord->Ecx, ep->ContextRecord->Edx,
-                  ep->ContextRecord->Esi, ep->ContextRecord->Edi, ep->ContextRecord->Ebp, ep->ContextRecord->Esp);
-        uint32_t *stack = (uint32_t *) ep->ContextRecord->Esp;
-        if (stack) {
-            crash_log("Stack: [0]=0x%08lx [1]=0x%08lx [2]=0x%08lx [3]=0x%08lx [4]=0x%08lx [5]=0x%08lx [6]=0x%08lx [7]=0x%08lx\r\n",
-                      stack[0], stack[1], stack[2], stack[3], stack[4], stack[5], stack[6], stack[7]);
-        }
-    }
-    return EXCEPTION_CONTINUE_SEARCH;
-}
 
 static FILE *s_log_file = NULL;
 
@@ -73,6 +39,11 @@ static void kpm_composite_log_writer(void *ctx, const char *chars, size_t nchars
 
 BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
 {
+    if (reason == DLL_PROCESS_DETACH) {
+        kpm_io_hook_fini();
+        return TRUE;
+    }
+
     if (reason != DLL_PROCESS_ATTACH) {
         return TRUE;
     }
@@ -80,7 +51,6 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     DisableThreadLibraryCalls(mod);
     s_log_file = fopen("kpmhook.log", "w");
     log_to_writer(kpm_composite_log_writer, NULL);
-    AddVectoredExceptionHandler(1, kpm_exception_filter);
 
     log_info("=============================================================");
     log_info(KPMHOOK_INFO_HEADER);
@@ -142,6 +112,10 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     /* Hook COM1 card reader (eamio virtual reader or physical serial passthrough) */
     kpm_reader_hook_init(&config_io);
 
+    /* Hook DirectShow VMR9 movie playback, COM apartment, and Step 17 watchdog */
+    kpm_movie_hook_init(&config_io);
+
     log_info("kpmhook initialized successfully. Resuming game execution.");
+
     return TRUE;
 }

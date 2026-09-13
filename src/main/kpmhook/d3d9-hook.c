@@ -22,7 +22,275 @@ static IDirect3DSurface9 *s_station1_surface = NULL;
 static HWND s_station0_target_wnd = NULL;
 static HWND s_station1_target_wnd = NULL;
 
+static IDirect3D9 *s_real_d3d9 = NULL;
+static IDirect3DDevice9 *s_real_device = NULL;
+static IDirect3DDevice9 *s_dev_proxy = NULL;
+
+IDirect3D9 *kpm_d3d9_get_real_d3d9(void)
+{
+    return s_real_d3d9;
+}
+
+IDirect3DDevice9 *kpm_d3d9_get_real_device(void)
+{
+    return s_real_device;
+}
+
+IDirect3DDevice9 *kpm_d3d9_get_device_proxy(void)
+{
+    return s_dev_proxy;
+}
+
+/* {694036AC-542A-4A3A-9A32-53BC20002C1B} */
+static const GUID IID_IDirect3DVideoDevice9_local =
+    { 0x694036AC, 0x542A, 0x4A3A, { 0x9A, 0x32, 0x53, 0xBC, 0x20, 0x00, 0x2C, 0x1B } };
+/* {D0223B96-BF7A-43FD-92BD-A43B0D82B9EB} */
+static const GUID IID_IDirect3DDevice9_local =
+    { 0xD0223B96, 0xBF7A, 0x43FD, { 0x92, 0xBD, 0xA4, 0x3B, 0x0D, 0x82, 0xB9, 0xEB } };
+
+typedef struct IDirect3DVideoDevice9Vtbl {
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(void *This, REFIID riid, void **ppvObject);
+    ULONG   (STDMETHODCALLTYPE *AddRef)(void *This);
+    ULONG   (STDMETHODCALLTYPE *Release)(void *This);
+    HRESULT (STDMETHODCALLTYPE *CreateSurface)(
+        void *This,
+        UINT Width,
+        UINT Height,
+        UINT BackBuffers,
+        D3DFORMAT Format,
+        D3DPOOL Pool,
+        DWORD Usage,
+        IDirect3DSurface9 **ppSurface,
+        HANDLE *pSharedHandle);
+    HRESULT (STDMETHODCALLTYPE *GetDXVACompressedBufferInfo)(
+        void *This,
+        GUID *pGuid,
+        void *pUncompressedBufferInfo,
+        DWORD *pNumCompressedBufferInfo,
+        void *pCompressedBufferInfo);
+    HRESULT (STDMETHODCALLTYPE *GetDXVAGuids)(
+        void *This,
+        DWORD *pNumGuids,
+        GUID *pGuids);
+    HRESULT (STDMETHODCALLTYPE *GetDXVAInternalInfo)(
+        void *This,
+        GUID *pGuid,
+        void *pUncompressedBufferInfo,
+        DWORD *pNumData,
+        void *pData);
+    HRESULT (STDMETHODCALLTYPE *GetUncompressedDXVAFormats)(
+        void *This,
+        GUID *pGuid,
+        DWORD *pNumFormats,
+        D3DFORMAT *pFormats);
+    HRESULT (STDMETHODCALLTYPE *CreateDXVADevice)(
+        void *This,
+        GUID *pGuid,
+        void *pVideoDesc,
+        void *pCustomLib,
+        DWORD dwFlags,
+        void **ppDXVADevice);
+} IDirect3DVideoDevice9Vtbl;
+
+struct kpm_video_device {
+    const IDirect3DVideoDevice9Vtbl *lpVtbl;
+    LONG ref_count;
+};
+
+static HRESULT STDMETHODCALLTYPE video_QueryInterface(void *This, REFIID riid, void **ppvObject);
+static ULONG STDMETHODCALLTYPE video_AddRef(void *This);
+static ULONG STDMETHODCALLTYPE video_Release(void *This);
+static HRESULT STDMETHODCALLTYPE video_CreateSurface(
+    void *This,
+    UINT Width,
+    UINT Height,
+    UINT BackBuffers,
+    D3DFORMAT Format,
+    D3DPOOL Pool,
+    DWORD Usage,
+    IDirect3DSurface9 **ppSurface,
+    HANDLE *pSharedHandle);
+static HRESULT STDMETHODCALLTYPE video_GetDXVACompressedBufferInfo(
+    void *This,
+    GUID *pGuid,
+    void *pUncompressedBufferInfo,
+    DWORD *pNumCompressedBufferInfo,
+    void *pCompressedBufferInfo);
+static HRESULT STDMETHODCALLTYPE video_GetDXVAGuids(
+    void *This,
+    DWORD *pNumGuids,
+    GUID *pGuids);
+static HRESULT STDMETHODCALLTYPE video_GetDXVAInternalInfo(
+    void *This,
+    GUID *pGuid,
+    void *pUncompressedBufferInfo,
+    DWORD *pNumData,
+    void *pData);
+static HRESULT STDMETHODCALLTYPE video_GetUncompressedDXVAFormats(
+    void *This,
+    GUID *pGuid,
+    DWORD *pNumFormats,
+    D3DFORMAT *pFormats);
+static HRESULT STDMETHODCALLTYPE video_CreateDXVADevice(
+    void *This,
+    GUID *pGuid,
+    void *pVideoDesc,
+    void *pCustomLib,
+    DWORD dwFlags,
+    void **ppDXVADevice);
+
+static const IDirect3DVideoDevice9Vtbl s_video_vtbl = {
+    video_QueryInterface,
+    video_AddRef,
+    video_Release,
+    video_CreateSurface,
+    video_GetDXVACompressedBufferInfo,
+    video_GetDXVAGuids,
+    video_GetDXVAInternalInfo,
+    video_GetUncompressedDXVAFormats,
+    video_CreateDXVADevice,
+};
+
+static struct kpm_video_device s_video_device = {
+    &s_video_vtbl,
+    1,
+};
+
+static HRESULT STDMETHODCALLTYPE video_QueryInterface(void *This, REFIID riid, void **ppvObject)
+{
+    if (!ppvObject) return E_POINTER;
+    if (IsEqualIID(riid, &IID_IUnknown) ||
+        memcmp(riid, &IID_IDirect3DVideoDevice9_local, sizeof(GUID)) == 0) {
+        *ppvObject = This;
+        video_AddRef(This);
+        return S_OK;
+    }
+    if (s_dev_proxy && (IsEqualIID(riid, &IID_IDirect3DDevice9_local) ||
+                        memcmp(riid, &IID_IDirect3DDevice9_local, sizeof(GUID)) == 0)) {
+        *ppvObject = s_dev_proxy;
+        IDirect3DDevice9_AddRef(s_dev_proxy);
+        return S_OK;
+    }
+    *ppvObject = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE video_AddRef(void *This)
+{
+    return InterlockedIncrement(&s_video_device.ref_count);
+}
+
+static ULONG STDMETHODCALLTYPE video_Release(void *This)
+{
+    return InterlockedDecrement(&s_video_device.ref_count);
+}
+
+static HRESULT STDMETHODCALLTYPE video_CreateSurface(
+    void *This,
+    UINT Width,
+    UINT Height,
+    UINT BackBuffers,
+    D3DFORMAT Format,
+    D3DPOOL Pool,
+    DWORD Usage,
+    IDirect3DSurface9 **ppSurface,
+    HANDLE *pSharedHandle)
+{
+    log_info("IDirect3DVideoDevice9::CreateSurface: %ux%u fmt=%u pool=%u usage=0x%lx",
+             Width, Height, Format, Pool, Usage);
+    if (!s_real_device) return E_FAIL;
+
+    if (Usage & D3DUSAGE_RENDERTARGET) {
+        return IDirect3DDevice9_CreateRenderTarget(
+            s_real_device, Width, Height, Format, D3DMULTISAMPLE_NONE, 0, FALSE, ppSurface, pSharedHandle);
+    }
+    return IDirect3DDevice9_CreateOffscreenPlainSurface(
+        s_real_device, Width, Height, Format, Pool, ppSurface, pSharedHandle);
+}
+
+static HRESULT STDMETHODCALLTYPE video_GetDXVACompressedBufferInfo(
+    void *This,
+    GUID *pGuid,
+    void *pUncompressedBufferInfo,
+    DWORD *pNumCompressedBufferInfo,
+    void *pCompressedBufferInfo)
+{
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE video_GetDXVAGuids(
+    void *This,
+    DWORD *pNumGuids,
+    GUID *pGuids)
+{
+    log_info("IDirect3DVideoDevice9::GetDXVAGuids called -> returning 0 hardware DXVA GUIDs (software fallback)");
+    if (!pNumGuids) return E_POINTER;
+    *pNumGuids = 0;
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE video_GetDXVAInternalInfo(
+    void *This,
+    GUID *pGuid,
+    void *pUncompressedBufferInfo,
+    DWORD *pNumData,
+    void *pData)
+{
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE video_GetUncompressedDXVAFormats(
+    void *This,
+    GUID *pGuid,
+    DWORD *pNumFormats,
+    D3DFORMAT *pFormats)
+{
+    log_info("IDirect3DVideoDevice9::GetUncompressedDXVAFormats called -> returning 0 formats");
+    if (!pNumFormats) return E_POINTER;
+    *pNumFormats = 0;
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE video_CreateDXVADevice(
+    void *This,
+    GUID *pGuid,
+    void *pVideoDesc,
+    void *pCustomLib,
+    DWORD dwFlags,
+    void **ppDXVADevice)
+{
+    if (ppDXVADevice) *ppDXVADevice = NULL;
+    return E_NOTIMPL;
+}
+
+static HRESULT STDMETHODCALLTYPE my_Device_QueryInterface(
+    IDirect3DDevice9 *self,
+    REFIID riid,
+    void **ppvObj)
+{
+    if (!ppvObj) return E_POINTER;
+
+    if (memcmp(riid, &IID_IDirect3DVideoDevice9_local, sizeof(GUID)) == 0) {
+        log_info("IDirect3DDevice9::QueryInterface intercepted for IID_IDirect3DVideoDevice9! Returning fallback proxy.");
+        *ppvObj = (void *) &s_video_device;
+        video_AddRef(&s_video_device);
+        return S_OK;
+    }
+
+    if (memcmp(riid, &IID_IUnknown, sizeof(GUID)) == 0 ||
+        memcmp(riid, &IID_IDirect3DDevice9_local, sizeof(GUID)) == 0) {
+        *ppvObj = self;
+        IDirect3DDevice9_AddRef(self);
+        return S_OK;
+    }
+
+    /* Delegate to real device */
+    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+    return IDirect3DDevice9_QueryInterface(real, riid, ppvObj);
+}
+
 static IDirect3D9 *(STDCALL *real_Direct3DCreate9)(UINT sdk_ver);
+
 
 struct rot_vertex {
     float x, y, z, rhw;
@@ -429,19 +697,22 @@ static HRESULT STDMETHODCALLTYPE my_CreateDevice(
     }
 
     if (SUCCEEDED(hr) && pdev && *pdev) {
+        s_real_device = *pdev;
         init_rotation_resources(*pdev, backbuf_w, backbuf_h);
 
         struct com_proxy *dev_proxy = NULL;
         HRESULT wrap_hr = com_proxy_wrap(&dev_proxy, *pdev, sizeof(IDirect3DDevice9Vtbl));
         if (SUCCEEDED(wrap_hr) && dev_proxy) {
             IDirect3DDevice9Vtbl *dev_vtbl = (IDirect3DDevice9Vtbl *) dev_proxy->vptr;
+            dev_vtbl->QueryInterface = my_Device_QueryInterface;
             dev_vtbl->Reset = my_Reset;
             dev_vtbl->Present = my_Present;
             dev_vtbl->GetBackBuffer = my_GetBackBuffer;
             dev_vtbl->GetNumberOfSwapChains = my_GetNumberOfSwapChains;
             dev_vtbl->GetSwapChain = my_GetSwapChain;
-            *pdev = (IDirect3DDevice9 *) dev_proxy;
-            log_info("IDirect3DDevice9 wrapped with com_proxy successfully (proxy=0x%p)", dev_proxy);
+            s_dev_proxy = (IDirect3DDevice9 *) dev_proxy;
+            *pdev = s_dev_proxy;
+            log_info("IDirect3DDevice9 wrapped with com_proxy successfully (proxy=0x%p, real=0x%p)", dev_proxy, s_real_device);
         } else {
             log_warning("Failed to wrap IDirect3DDevice9: 0x%08lx", wrap_hr);
         }
@@ -465,7 +736,10 @@ static IDirect3D9 *STDCALL my_Direct3DCreate9(UINT sdk_ver)
         return NULL;
     }
 
+    s_real_d3d9 = api;
+
     hr = com_proxy_wrap(&proxy, api, sizeof(*api->lpVtbl));
+
     if (FAILED(hr)) {
         log_warning("com_proxy_wrap failed: 0x%08lx", hr);
         return api;

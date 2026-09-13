@@ -293,7 +293,8 @@ static const struct action_def kpm_actions[] = {
     {0x06, IDS_KPM_TRANSFER},
     {0x07, IDS_KPM_UPPER_L},
     {0x08, IDS_KPM_UPPER_R},
-    {0x09, IDS_KPM_COIN},
+    {0x09, IDS_KPM_MEDAL},
+    {0x0A, IDS_KPM_COIN},
 };
 
 static const struct light_def kpm_lights[] = {

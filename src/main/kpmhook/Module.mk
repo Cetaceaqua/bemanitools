@@ -4,6 +4,7 @@ ldflags_kpmhook := \
     -lws2_32 \
     -luser32 \
     -lgdi32 \
+    -lole32 \
     -ld3d9
 
 libs_kpmhook := \
@@ -26,5 +27,7 @@ src_kpmhook := \
     locale-hook.c \
     io-hook.c \
     reader-hook.c \
+    movie-hook.c \
     d3d9-hook.c \
     dllmain.c
+

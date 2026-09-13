@@ -147,66 +147,52 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
         eam_io_poll(0);
         uint8_t sensor = eam_io_get_sensor_state(0);
 
-        /* Latch card insertion for 3 seconds to ensure both Test Mode (1Hz refresh)
-           and game polling state machines capture the card reliably */
-        static DWORD s_card_latch_until = 0;
+        /* KPM is an arcade medal game where the e-AMUSEMENT PASS stays physically
+           on the RFID reader tray during the entire gameplay session.
+           Insert/place card: VK_ADD (NumPad +) or VK_INSERT.
+           Eject/remove card: VK_SUBTRACT (NumPad -) or VK_DELETE. */
+        static bool s_virtual_card_placed = false;
+        static DWORD s_last_action = 0;
+        static bool s_logged_card = false;
         DWORD now = GetTickCount();
 
-        bool key_pressed = ((GetAsyncKeyState(VK_ADD) & 0x8000) ||
-                            (GetAsyncKeyState(VK_OEM_PLUS) & 0x8000) ||
-                            (GetAsyncKeyState(VK_INSERT) & 0x8000));
-        if (key_pressed || sensor != 0) {
-            if (now >= s_card_latch_until) {
-                log_info("Card insert triggered (holding for 3.0s)...");
+        bool insert_pressed = ((GetAsyncKeyState(VK_ADD) & 0x8000) ||
+                              (GetAsyncKeyState(VK_INSERT) & 0x8000));
+        bool eject_pressed  = ((GetAsyncKeyState(VK_SUBTRACT) & 0x8000) ||
+                              (GetAsyncKeyState(VK_DELETE) & 0x8000));
+
+        if (insert_pressed && (now - s_last_action > 300)) {
+            s_last_action = now;
+            if (!s_virtual_card_placed) {
+                s_virtual_card_placed = true;
+                s_logged_card = false;
+                log_info("Virtual RFID Tray: Card PLACED on reader tray (+ / Insert)");
             }
-            s_card_latch_until = now + 3000;
+        } else if (eject_pressed && (now - s_last_action > 300)) {
+            s_last_action = now;
+            if (s_virtual_card_placed) {
+                s_virtual_card_placed = false;
+                s_logged_card = false;
+                log_info("Virtual RFID Tray: Card EJECTED from reader tray (- / Delete)");
+            }
         }
 
-        if (now < s_card_latch_until) {
-            sensor = (1 << EAM_IO_SENSOR_FRONT) | (1 << EAM_IO_SENSOR_BACK);
-        }
+        bool card_present = false;
+        uint8_t uid[8];
+        uint8_t kpm_card_type = 0;
 
-        if (sensor != 0) {
-            uint8_t uid[8];
+        if (s_virtual_card_placed || sensor != 0) {
             memset(uid, 0, sizeof(uid));
             uint8_t card_type = eam_io_read_card(0, uid, sizeof(uid));
 
-            /* Fallback: if eam_io_read_card returned none (e.g. card_path not configured or failed),
-               try reading card0.txt directly */
-            if (card_type == EAM_IO_CARD_NONE) {
-                FILE *cf = fopen("card0.txt", "r");
-                if (!cf) {
-                    cf = fopen("contents\\card0.txt", "r");
-                }
-                if (cf) {
-                    char line[64];
-                    if (fgets(line, sizeof(line), cf)) {
-                        char *p = line;
-                        while (*p && (*p == ' ' || *p == '\t')) p++;
-                        char hex[17];
-                        strncpy(hex, p, 16);
-                        hex[16] = '\0';
-                        for (int i = 0; i < 8; i++) {
-                            unsigned int b = 0;
-                            sscanf(&hex[i * 2], "%02X", &b);
-                            uid[i] = (uint8_t) b;
-                        }
-                        card_type = (uid[0] == 0xE0 && uid[1] == 0x04) ? 
-                            EAM_IO_CARD_ISO15696 : EAM_IO_CARD_FELICA;
-                    }
-                    fclose(cf);
-                }
-                if (card_type == EAM_IO_CARD_NONE) {
-                    /* Hardcoded fallback card ID */
-                    uid[0] = 0xE0; uid[1] = 0x04; uid[2] = 0x01; uid[3] = 0x00;
-                    uid[4] = 0x23; uid[5] = 0x7C; uid[6] = 0x93; uid[7] = 0x16;
-                    card_type = EAM_IO_CARD_ISO15696;
-                }
+            if (card_type != EAM_IO_CARD_NONE) {
+                card_present = true;
+                /* KPM protocol: 0 = ISO15693 (e-Amusement Pass), 1 = FeliCa */
+                kpm_card_type = (card_type == EAM_IO_CARD_FELICA) ? 1 : 0;
             }
+        }
 
-            /* 1 = ISO15693 (e-Amusement Pass), 0 = FeliCa */
-            uint8_t kpm_card_type = (card_type == EAM_IO_CARD_FELICA) ? 0 : 1;
-
+        if (card_present) {
             /* Full 19-byte RFID detection response:
                [0] 0xAA (Sync)
                [1] Seq
@@ -214,10 +200,9 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
                [3] Cmd (0x34)
                [4] Subcmd (0x00)
                [5] Length (0x0C = 12 payload bytes)
-               [6] Status (0x01: card present, non-zero and != 4)
-               [7] CardType (1: ISO15693, 0: FeliCa)
-               [8..15] 8-byte UID transmitted in RF Little-Endian (reversed) order so
-                       that the unpacking loop in sub_507C90 restores [uid0..uid7] at [168..175]
+               [6] Status (0x01: card present)
+               [7] CardType (0: ISO15693 e-Amusement Pass, 1: FeliCa)
+               [8..15] 8-byte UID [uid0..uid7]
                [16] 0x00
                [17] 0x00
                [18] Checksum (sum of bytes 1..17)
@@ -231,14 +216,14 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
             resp[5] = 0x0C; /* 12 payload bytes */
             resp[6] = 0x01; /* Status: card present */
             resp[7] = kpm_card_type;
-            resp[8]  = uid[7];
-            resp[9]  = uid[6];
-            resp[10] = uid[5];
-            resp[11] = uid[4];
-            resp[12] = uid[3];
-            resp[13] = uid[2];
-            resp[14] = uid[1];
-            resp[15] = uid[0];
+            resp[8]  = uid[0];
+            resp[9]  = uid[1];
+            resp[10] = uid[2];
+            resp[11] = uid[3];
+            resp[12] = uid[4];
+            resp[13] = uid[5];
+            resp[14] = uid[6];
+            resp[15] = uid[7];
             resp[16] = 0x00;
             resp[17] = 0x00;
 
@@ -249,10 +234,14 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
             resp[18] = csum;
 
             queue_response(resp, sizeof(resp));
-            log_info(
-                "Card detected! Type=%s UID=%02X%02X%02X%02X%02X%02X%02X%02X",
-                kpm_card_type ? "ISO15693" : "FeliCa",
-                uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6], uid[7]);
+
+            if (!s_logged_card) {
+                s_logged_card = true;
+                log_info(
+                    "Card detected on tray: Type=%s UID=%02X%02X%02X%02X%02X%02X%02X%02X",
+                    (kpm_card_type == 0) ? "ISO15693" : "FeliCa",
+                    uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6], uid[7]);
+            }
         } else {
             /* No card present: 8-byte idle response:
                [0] 0xAA, [1] seq, [2] node, [3] 0x34, [4] 0x00, [5] 0x01, [6] 0x00 (Status: no card), [7] csum

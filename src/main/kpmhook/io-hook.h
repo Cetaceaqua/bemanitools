@@ -19,5 +19,10 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg);
  */
 void kpm_io_hook_update(void);
 
+/**
+ * Flush and persist SRAM NVRAM to disk on process shutdown.
+ */
+void kpm_io_hook_fini(void);
+
 #endif /* KPMHOOK_IO_HOOK_H */
 

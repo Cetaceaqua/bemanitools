@@ -8,6 +8,12 @@
 /**
  * Configuration values for input and I/O related items.
  */
+enum kpmhook_cabinet_girl {
+    KPMHOOK_CABINET_GIRL_MANAKA = 0,
+    KPMHOOK_CABINET_GIRL_RINKO  = 1,
+    KPMHOOK_CABINET_GIRL_NENE   = 2,
+};
+
 struct kpmhook_config_io {
     bool disable_debug_keys;
     bool lights_normalized;
@@ -15,7 +21,16 @@ struct kpmhook_config_io {
     char lights_raw_port[32];
     int lights_raw_baud;
     char card_port[32];
+    enum kpmhook_cabinet_girl cabinet_girl;
+    int boot_credits;
+    uint8_t attract_mode;
+    bool show_secret_menu;
+    int attract_timeout;
+    bool boot_to_title;
+    bool coin_auto_transfer;
+    bool play_movie;
 };
+
 
 /**
  * Initialize a cconfig structure with the basic structure and default values

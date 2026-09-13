@@ -94,10 +94,16 @@ bool kpm_io_read_inputs(void);
 uint16_t kpm_io_get_buttons(void);
 
 /**
- * Get the number of coins/medals inserted since the last call.
- * This will increment dword_1ACFCB8 + 508.
+ * Get the number of game medals inserted since the last call (Medal In, offset 476).
  *
- * @return Number of new coin/medal pulses.
+ * @return Number of new medal pulses.
+ */
+uint16_t kpm_io_get_medal_pulse(void);
+
+/**
+ * Get the number of 100-yen coins inserted since the last call (Coin In, offset 508).
+ *
+ * @return Number of new 100-yen coin pulses.
  */
 uint16_t kpm_io_get_coin_pulse(void);
 
