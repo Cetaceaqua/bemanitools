@@ -27,6 +27,9 @@
 #define ADDR_ATTRACT_CREDIT_BYPASS   0x00473DA9
 #define ADDR_SLOT_IDLE_TIMER_RESET   0x00471362
 #define ADDR_STEP39_ABORT_CHECK      0x0047BCE0
+#define ADDR_BETSLOT_SKIP_JUMP       0x004C43FB
+#define ADDR_BETSLOT_TIMEOUT         0x004C4412
+#define ADDR_BETSLOT_CREDIT_BYPASS   0x004C4440
 #define ADDR_BOOT_STATUS_INIT_MODE   0x00425A60
 #define ADDR_STARTUP_MODE_SWITCH_JUMP 0x004263C1
 #define ADDR_HARDWARE_TEST_MODE_0    0x004F2DC8
@@ -282,8 +285,20 @@ static uint32_t *get_slot_idle_timer(void)
     }
     if (!status) return NULL;
     uint32_t current_mode = *((uint32_t *) (status + 0x77418));
-    if (current_mode != 5) return NULL;
-    return (uint32_t *) (status + 0x247C + 0x70A78);
+    if (current_mode == 5) {
+        return (uint32_t *) (status + 0x247C + 0x70A78);
+    }
+    if (current_mode == 11) {
+        /* Mode 11 CGameBetSlot is at status + 0x76F48.
+         * Offset +116 (0x74) is m_pSlotMain (CGameSlotMainBet).
+         * Inside CGameSlotMainBet, offset +360 (0x168) is the idle timer. */
+        uint8_t *betslot = status + 0x76F48;
+        uint32_t *p_slotmain = (uint32_t *) (betslot + 116);
+        if (p_slotmain && *p_slotmain) {
+            return (uint32_t *) (*p_slotmain + 360);
+        }
+    }
+    return NULL;
 }
 
 void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
@@ -411,6 +426,27 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
             ADDR_ATTRACT_SKIP_JUMP,
             ADDR_ATTRACT_CREDIT_BYPASS,
             ADDR_STEP39_ABORT_CHECK);
+
+        /* Also patch Mode 11 (CGameSlotMainBet) idle timeout:
+         * 1. 0x004C4412: Patch 120s timeout threshold (1D4C0h) to configured timeout_ms.
+         * 2. 0x004C43FB: Replace `test esi, esi; jz short loc_4C4403` with `jmp short loc_4C4403` (EB 06 90 90)
+         *    so session flags (esi != 0) do not skip the BetSlot idle timer evaluation.
+         * 3. 0x004C4440: NOP out `jnz short loc_4C4449` (75 07 -> 90 90) so credit balance does not abort timeout.
+         */
+        patch_memory(ADDR_BETSLOT_TIMEOUT, (const uint8_t *) &timeout_ms, sizeof(timeout_ms));
+
+        static const uint8_t jmp_betslot_skip[4] = { 0xEB, 0x06, 0x90, 0x90 };
+        patch_memory(ADDR_BETSLOT_SKIP_JUMP, jmp_betslot_skip, sizeof(jmp_betslot_skip));
+
+        static const uint8_t nops2[2] = { 0x90, 0x90 };
+        patch_memory(ADDR_BETSLOT_CREDIT_BYPASS, nops2, sizeof(nops2));
+
+        log_info(
+            "Patched Mode 11 (BetSlot) idle timeout (%u ms at 0x%08X), skip bypass (0x%08X), credit bypass (0x%08X)",
+            timeout_ms,
+            ADDR_BETSLOT_TIMEOUT,
+            ADDR_BETSLOT_SKIP_JUMP,
+            ADDR_BETSLOT_CREDIT_BYPASS);
     }
 
     if (cfg->boot_to_title) {
