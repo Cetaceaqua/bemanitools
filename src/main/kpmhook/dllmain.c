@@ -40,6 +40,7 @@ static void kpm_composite_log_writer(void *ctx, const char *chars, size_t nchars
 BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
 {
     if (reason == DLL_PROCESS_DETACH) {
+        kpm_reader_hook_fini();
         kpm_io_hook_fini();
         return TRUE;
     }

@@ -7,6 +7,7 @@
 #include "hook/table.h"
 #include "kpmhook/config-kpm.h"
 #include "kpmhook/window-hook.h"
+#include "kpmhook/io-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 
@@ -58,6 +59,28 @@ static LONG (WINAPI *real_SetWindowLongW)(
     int nIndex,
     LONG dwNewLong);
 
+static DWORD WINAPI exit_watchdog_thread(void *param)
+{
+    /* If the process has not terminated after 5 seconds of WM_CLOSE processing, force exit */
+    Sleep(5000);
+    log_warning("Process shutdown watchdog timed out after 5 seconds, forcing ExitProcess(0)...");
+    ExitProcess(0);
+    return 0;
+}
+
+static void trigger_exit_watchdog(void)
+{
+    static bool s_watchdog_started = false;
+    if (!s_watchdog_started) {
+        s_watchdog_started = true;
+        kpm_io_hook_flush_nvram();
+        HANDLE hThread = CreateThread(NULL, 0, exit_watchdog_thread, NULL, 0, NULL);
+        if (hThread) {
+            CloseHandle(hThread);
+        }
+    }
+}
+
 static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
 {
     WNDPROC orig_proc = (WNDPROC) GetPropW(hWnd, L"KPM_ORIG_WNDPROC");
@@ -90,16 +113,18 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
 
         /* Clean exit on close button or Alt+F4 */
         case WM_CLOSE: {
-            log_info("Window 0x%p received WM_CLOSE, exiting process cleanly...", hWnd);
-            DestroyWindow(hWnd);
-            PostQuitMessage(0);
-            ExitProcess(0);
-            return 0;
+            log_info("Window 0x%p received WM_CLOSE, triggering NVRAM flush and clean shutdown...", hWnd);
+            trigger_exit_watchdog();
+            if (hWnd != s_station0_hwnd && s_station0_hwnd != NULL) {
+                /* If Station 1 close button was clicked, also notify main Station 0 window */
+                PostMessageW(s_station0_hwnd, WM_CLOSE, 0, 0);
+            }
+            break;
         }
 
         case WM_DESTROY: {
-            PostQuitMessage(0);
-            return 0;
+            trigger_exit_watchdog();
+            break;
         }
     }
 

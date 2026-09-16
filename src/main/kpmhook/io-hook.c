@@ -17,6 +17,7 @@
 #define ADDR_SUBBOARD_CHECK_JUMP  0x00411CC4
 #define ADDR_DWORD_1ACFCB8        0x01ACFCB8
 #define ADDR_DWORD_1ACFCBC        0x01ACFCBC
+#define ADDR_NO_SUBBOARD_CHECK_CALL  0x0041F4DE
 #define ADDR_BOOT_CREDITS_VALUE   0x0041F5E3
 #define ADDR_SECRET_MENU_COUNT_DEC   0x0042C199
 #define ADDR_SECRET_MENU_DRAW_FILTER 0x0042C550
@@ -24,12 +25,17 @@
 #define ADDR_ATTRACT_TIMEOUT_2       0x00473DA3
 #define ADDR_ATTRACT_SKIP_JUMP       0x00473D90
 #define ADDR_ATTRACT_CREDIT_BYPASS   0x00473DA9
+#define ADDR_SLOT_IDLE_TIMER_RESET   0x00471362
 #define ADDR_STEP39_ABORT_CHECK      0x0047BCE0
 #define ADDR_BOOT_STATUS_INIT_MODE   0x00425A60
 #define ADDR_STARTUP_MODE_SWITCH_JUMP 0x004263C1
 #define ADDR_HARDWARE_TEST_MODE_0    0x004F2DC8
 #define ADDR_HARDWARE_TEST_MODE_1    0x004F2DE8
 #define ADDR_NVRAM_SRAM_BUFFER       0x01D02970
+#define ADDR_NVRAM_ERROR_FLAGS       0x01ACE7E4
+#define ADDR_STATION_CTX_0           0x00E652E0
+#define ADDR_STATION_CTX_1           0x00E652E4
+#define ADDR_STATION_CTX_2           0x00E652E8
 
 #define ADDR_NVRAM_MEMSET_CALL       0x005046A7
 #define NVRAM_SRAM_SIZE              0x00080000 /* 512 KB battery-backed SRAM */
@@ -183,6 +189,32 @@ static void kpm_nvram_flush(void)
     }
 }
 
+void kpm_io_hook_flush_nvram(void)
+{
+    kpm_nvram_flush();
+}
+
+/*
+ * sub_41F410 CheckInitError calls KPMConfig_GetInt(this, "NO_SUBBOARD", 0) at 0x0041F4DE.
+ * Original signature is __thiscall int KPMConfig_GetInt(void *this, const char *key, int default_val).
+ * In MSVC x86, __fastcall puts `this` in ECX and `edx_unused` in EDX, matching __thiscall register conventions.
+ */
+static int __fastcall my_check_no_subboard(void *this_ptr, void *edx_unused, const char *key, int default_val)
+{
+    uint32_t *p_nvram_error = (uint32_t *) ADDR_NVRAM_ERROR_FLAGS;
+    if (p_nvram_error && *p_nvram_error == 0) {
+        log_info(
+            "NVRAM integrity verified (0x01ACE7E4 == 0), bypassing NO_SUBBOARD wipe at 0x%08X",
+            ADDR_NO_SUBBOARD_CHECK_CALL);
+        return 0; /* Returns 0 so `cmp eax, ebx; jz loc_41F5EE` cleanly skips erasing partitions */
+    }
+
+    log_info(
+        "NVRAM error flags non-zero (0x%08X), allowing initial default SRAM partition format",
+        p_nvram_error ? *p_nvram_error : 0xFFFFFFFF);
+    return 1;
+}
+
 static void init_raw_serial(const struct kpmhook_config_io *cfg)
 {
     if (!cfg->lights_raw_serial) {
@@ -288,6 +320,12 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
     patch_memory(ADDR_BOOT_CREDITS_VALUE, (const uint8_t *) &boot_cred, sizeof(boot_cred));
     log_info("Configured boot initial credits: %u (at 0x%08X)", boot_cred, ADDR_BOOT_CREDITS_VALUE);
 
+    /* Hook sub_41F410 CheckInitError NO_SUBBOARD check to protect SRAM settings */
+    patch_call(ADDR_NO_SUBBOARD_CHECK_CALL, my_check_no_subboard);
+    log_info(
+        "Hooked NO_SUBBOARD initialization check at 0x%08X to protect SRAM persistence",
+        ADDR_NO_SUBBOARD_CHECK_CALL);
+
     if (cfg->show_secret_menu) {
         /* In CTestModeMenuCustom::Init (0x0042C180):
          * 0x0042C199: add dword ptr [esi+94h], 0FFFFFFFFh (7 bytes: 83 86 94 00 00 00 FF)
@@ -332,6 +370,16 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
             timeout_ms,
             ADDR_ATTRACT_TIMEOUT_1,
             ADDR_ATTRACT_TIMEOUT_2);
+
+        /* sub_471320 (Mode 5 per-frame dispatcher) overwrites the idle timer [this+0x70A78]
+         * with timeGetTime() every frame (89 86 78 0A 07 00), so the elapsed idle time comparison
+         * can never reach the timeout threshold. NOP this out so the timer ticks legitimately
+         * from Substate 3->4 transition (0x0047313F) and post-timeout re-arm (0x00473DE4). */
+        static const uint8_t nops6_timer[6] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
+        patch_memory(ADDR_SLOT_IDLE_TIMER_RESET, nops6_timer, sizeof(nops6_timer));
+        log_info(
+            "Patched per-frame slot idle timer overwrite at 0x%08X to NOPs",
+            ADDR_SLOT_IDLE_TIMER_RESET);
 
         /* Prevent false-positive flags and credit balance from blocking idle attract timeout:
          * 1. sub_4532A0 and sub_453280 are patched to return 0 (xor eax, eax; ret).
@@ -672,6 +720,27 @@ void kpm_io_hook_update(void)
     if (p_subboard && *p_subboard) {
         uint8_t *subboard_base = (uint8_t *) (*p_subboard);
         subboard_base[616] = s_cabinet_jumper_byte;
+    }
+
+    /* Inject attract mode setting (USE GAME MODE) and ensure AGING MODE is clear:
+     * *(g_pStationCtx_0 + 27): 0=BOTH ALT, 1=BOTH PANEL, 2=BOTH SLOT, 3=PANEL ONLY, 4=SLOT ONLY.
+     * *(g_pStationCtx_0 + 144): AGING MODE (must be 0 to avoid auto-play / auto-credits).
+     */
+    uint32_t *p_ctx0 = (uint32_t *) ADDR_STATION_CTX_0;
+    if (p_ctx0 && *p_ctx0) {
+        uint8_t *ctx0 = (uint8_t *) (*p_ctx0);
+        ctx0[27] = (uint8_t) s_cfg.attract_mode;
+        ctx0[144] = 0;
+    }
+    uint32_t *p_ctx1 = (uint32_t *) ADDR_STATION_CTX_1;
+    if (p_ctx1 && *p_ctx1) {
+        uint8_t *ctx1 = (uint8_t *) (*p_ctx1);
+        ctx1[144] = 0;
+    }
+    uint32_t *p_ctx2 = (uint32_t *) ADDR_STATION_CTX_2;
+    if (p_ctx2 && *p_ctx2) {
+        uint8_t *ctx2 = (uint8_t *) (*p_ctx2);
+        ctx2[144] = 0;
     }
 
     /* Offset 476 (0x1DC): MEDAL IN pulse counter
