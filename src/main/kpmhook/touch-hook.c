@@ -10,7 +10,7 @@
 #include "util/defs.h"
 #include "util/log.h"
 
-#define MAX_SCREENS 2
+#define MAX_SCREENS 1
 #define TOUCH_QUEUE_SIZE 64
 
 struct elo_touch_event {
@@ -32,6 +32,14 @@ struct elo_screen_queue {
 static struct elo_screen_queue s_screens[MAX_SCREENS];
 static bool s_touch_inited = false;
 
+static void patch_memory(uintptr_t addr, const uint8_t *bytes, size_t len)
+{
+    DWORD old_protect;
+    VirtualProtect((void *) addr, len, PAGE_EXECUTE_READWRITE, &old_protect);
+    memcpy((void *) addr, bytes, len);
+    VirtualProtect((void *) addr, len, old_protect, &old_protect);
+}
+
 static void init_screen_queues(void)
 {
     if (!s_touch_inited) {
@@ -49,14 +57,15 @@ static void init_screen_queues(void)
 
 void kpm_touch_post_event(int screen, int client_x, int client_y, int client_w, int client_h, int type)
 {
-    if (screen < 0 || screen >= MAX_SCREENS || client_w <= 0 || client_h <= 0) {
+    /* KPM cabinet has only 1 touch screen on Station 0 (Main Screen) */
+    if (screen != 0 || client_w <= 0 || client_h <= 0) {
         return;
     }
     init_screen_queues();
 
-    /* Convert client pixels to Elo 12-bit ADC raw range (0..4092) */
-    int raw_x = (int) (((int64_t) client_x * 4092) / client_w);
-    int raw_y = (int) (((int64_t) client_y * 4092) / client_h);
+    /* Convert client pixels to Elo 12-bit ADC raw range (0..4092) with half-pixel rounding */
+    int raw_x = (int) ((((int64_t) client_x * 4092) + (client_w / 2)) / client_w);
+    int raw_y = (int) ((((int64_t) client_y * 4092) + (client_h / 2)) / client_h);
 
     if (raw_x < 0) raw_x = 0;
     if (raw_x > 4092) raw_x = 4092;
@@ -125,9 +134,9 @@ static int __cdecl my_EloGetScreenInfo(void *buf, unsigned int *num_screens)
         memset(buf, 0, 128);
     }
     if (num_screens) {
-        *num_screens = MAX_SCREENS; /* Report 2 screens for dual station */
+        *num_screens = MAX_SCREENS; /* KPM cabinet has exactly 1 touch screen on Main Station 0 */
     }
-    log_info("EloGetScreenInfo called -> reporting %u screens", num_screens ? *num_screens : 0);
+    log_info("EloGetScreenInfo called -> reporting %u screen(s)", num_screens ? *num_screens : 0);
     return 0; /* 0 = EloSuccess */
 }
 
@@ -245,6 +254,13 @@ void kpm_touch_hook_init(void)
         "libHooknMouse.dll",
         kpm_hooknmouse_syms,
         lengthof(kpm_hooknmouse_syms));
+
+    /* Patch 0x004187cf: JNZ short loc_418806 (75 35) -> NOP NOP (90 90)
+     * Bypasses factory CRT bezel calibration distortion and forces 1:1 exact pixel mapping.
+     */
+    static const uint8_t nops_2[2] = { 0x90, 0x90 };
+    patch_memory(0x004187cf, nops_2, sizeof(nops_2));
+    log_info("Patched 0x004187cf: Bypassed Elo factory bezel calibration distortion (1:1 pixel mapping enabled)");
 
     log_info("EloPubIf & libHooknMouse touch panel hooks installed successfully");
 }

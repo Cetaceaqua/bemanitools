@@ -102,38 +102,39 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
     }
 
     switch (Msg) {
-        /* Forward mouse events to Elo touch virtualizer for Station 0 / Station 1 */
+        /* Forward mouse events to Elo touch virtualizer ONLY for Station 0 (Main Screen) */
         case WM_LBUTTONDOWN: {
-            int screen = (hWnd == s_station1_hwnd) ? 1 : 0;
-            RECT rc;
-            GetClientRect(hWnd, &rc);
-            int cw = rc.right - rc.left;
-            int ch = rc.bottom - rc.top;
-            kpm_touch_post_event(screen, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 1);
-            SetCapture(hWnd);
-            break;
-        }
-
-        case WM_MOUSEMOVE: {
-            if (wParam & MK_LBUTTON) {
-                int screen = (hWnd == s_station1_hwnd) ? 1 : 0;
+            if (hWnd == s_station0_hwnd) {
                 RECT rc;
                 GetClientRect(hWnd, &rc);
                 int cw = rc.right - rc.left;
                 int ch = rc.bottom - rc.top;
-                kpm_touch_post_event(screen, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 2);
+                kpm_touch_post_event(0, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 1);
+                SetCapture(hWnd);
+            }
+            break;
+        }
+
+        case WM_MOUSEMOVE: {
+            if ((wParam & MK_LBUTTON) && (hWnd == s_station0_hwnd)) {
+                RECT rc;
+                GetClientRect(hWnd, &rc);
+                int cw = rc.right - rc.left;
+                int ch = rc.bottom - rc.top;
+                kpm_touch_post_event(0, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 2);
             }
             break;
         }
 
         case WM_LBUTTONUP: {
-            int screen = (hWnd == s_station1_hwnd) ? 1 : 0;
-            RECT rc;
-            GetClientRect(hWnd, &rc);
-            int cw = rc.right - rc.left;
-            int ch = rc.bottom - rc.top;
-            kpm_touch_post_event(screen, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 4);
-            ReleaseCapture();
+            if (hWnd == s_station0_hwnd) {
+                RECT rc;
+                GetClientRect(hWnd, &rc);
+                int cw = rc.right - rc.left;
+                int ch = rc.bottom - rc.top;
+                kpm_touch_post_event(0, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 4);
+                ReleaseCapture();
+            }
             break;
         }
 
