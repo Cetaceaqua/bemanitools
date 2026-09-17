@@ -267,9 +267,43 @@ static __declspec(naked) void sub_41d3e9_hook(void)
 }
 
 /* -------------------------------------------------------------------------
- * Hook 4: CCameraDevice::ThreadProc RGB32 Frame Transfer (0x0041D44C)
+ * Hook 4: CCameraDevice::ThreadProc Frame Error Resiliency (0x0041D415)
+ * If GetCurrentBuffer fails or frame is not ready, do not kill the thread.
+ * Sleep 5ms and retry unless stop is requested. (19 bytes)
+ * ------------------------------------------------------------------------- */
+static const uintptr_t SUB_41D415_ADDR = 0x0041D415;
+static const uintptr_t SUB_41D43A_ADDR = 0x0041D43A;
+static const uintptr_t SUB_41D3E2_ADDR = 0x0041D3E2;
+static const uintptr_t SUB_41D428_ADDR = 0x0041D428;
+
+static __declspec(naked) void sub_41d415_hook(void)
+{
+    __asm {
+        test eax, eax
+        jz frame_ok
+
+        // Transient frame grab failure or frame not ready yet.
+        // Check if thread stop requested: byte ptr [esi + 0x3C]
+        cmp byte ptr [esi + 0x3C], 0
+        jnz do_exit
+
+        // Not stopping: sleep 5ms and loop back to retry
+        push 5
+        call dword ptr [Sleep]
+        jmp dword ptr [SUB_41D3E2_ADDR]
+
+    do_exit:
+        jmp dword ptr [SUB_41D428_ADDR]
+
+    frame_ok:
+        jmp dword ptr [SUB_41D43A_ADDR]
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * Hook 5: CCameraDevice::ThreadProc RGB32 Frame Transfer (0x0041D44C)
  * Replaces original UYVY floating point conversion loop with fast RGB32
- * vertical flip & copy into m_pBuf1 (for QR/AR) and m_pBuf2 (for D3D texture).
+ * vertical flip, Alpha=0xFF forcing, and copy into m_pBuf1 and m_pBuf2.
  * ------------------------------------------------------------------------- */
 static const uintptr_t SUB_41D44C_ADDR = 0x0041D44C;
 static const uintptr_t SUB_41D62C_CONT = 0x0041D62C;
@@ -283,17 +317,34 @@ static void kpm_camera_copy_frame(void *cam_this)
     uint8_t *dst1 = *(uint8_t **) (cam + 0x2C); // Buffer 1 (for qrPut/AR)
     uint8_t *dst2 = *(uint8_t **) (cam + 0x30); // Buffer 2 (for Direct3D texture)
 
-    if (src && dst1 && dst2 && width > 0 && height > 0) {
+    static uint32_t s_frame_cnt = 0;
+    s_frame_cnt++;
+    if (s_frame_cnt <= 5 || (s_frame_cnt % 120) == 0) {
+        log_info("Camera frame #%u: %dx%d, src=%p, dst1=%p, dst2=%p, sample=0x%08X",
+                 s_frame_cnt, width, height, (void*)src, (void*)dst1, (void*)dst2,
+                 src ? *((uint32_t*)src) : 0);
+    }
+
+    if (src && dst1 && dst2 && width > 0 && height != 0) {
+        int abs_height = (height > 0) ? height : -height;
         int stride = width * 4;
-        /* DirectShow RGB32 bitmaps are bottom-up (biHeight > 0),
-         * so flip rows vertically so the video is right-side up:
-         */
-        for (int y = 0; y < height; y++) {
-            const uint8_t *s_row = src + (height - 1 - y) * stride;
-            uint8_t *d_row = dst1 + y * stride;
-            memcpy(d_row, s_row, stride);
+        bool flip = (height > 0); // DirectShow RGB32 bottom-up DIBs have height > 0
+
+        for (int y = 0; y < abs_height; y++) {
+            int src_y = flip ? (abs_height - 1 - y) : y;
+            const uint32_t *s_row = (const uint32_t *) (src + src_y * stride);
+            uint32_t *d_row1 = (uint32_t *) (dst1 + y * stride);
+            uint32_t *d_row2 = (uint32_t *) (dst2 + y * stride);
+
+            for (int x = 0; x < width; x++) {
+                /* DirectShow RGB32 typically has Alpha = 0x00.
+                 * D3D9 D3DFMT_A8R8G8B8 alpha blend requires Alpha = 0xFF for opacity!
+                 */
+                uint32_t px = s_row[x] | 0xFF000000;
+                d_row1[x] = px;
+                d_row2[x] = px;
+            }
         }
-        memcpy(dst2, dst1, width * height * 4);
     }
 }
 
@@ -339,7 +390,11 @@ void kpm_camera_hook_init(void)
     patch_jmp(SUB_41D3E9_ADDR, sub_41d3e9_hook, 8);
     log_info("Installed CCameraDevice::ThreadProc grabber null hook at 0x%08X", SUB_41D3E9_ADDR);
 
-    /* 6. Install ThreadProc RGB32 frame copy & vertical flip hook (6 bytes) */
+    /* 6. Install ThreadProc GetCurrentBuffer error resiliency hook (19 bytes) */
+    patch_jmp(SUB_41D415_ADDR, sub_41d415_hook, 19);
+    log_info("Installed CCameraDevice::ThreadProc GetCurrentBuffer resiliency hook at 0x%08X", SUB_41D415_ADDR);
+
+    /* 7. Install ThreadProc RGB32 frame copy, Alpha=0xFF, & vertical flip hook (6 bytes) */
     patch_jmp(SUB_41D44C_ADDR, sub_41d44c_hook, 6);
     log_info("Installed RGB32 frame copy & vertical flip hook at 0x%08X", SUB_41D44C_ADDR);
 
