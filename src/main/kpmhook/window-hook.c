@@ -81,6 +81,19 @@ static void trigger_exit_watchdog(void)
     }
 }
 
+#include "kpmhook/touch-hook.h"
+
+static int (WINAPI *real_ShowCursor)(BOOL bShow);
+
+static int WINAPI my_ShowCursor(BOOL bShow)
+{
+    /* Always keep mouse cursor visible for PC pair-programming / play */
+    if (real_ShowCursor) {
+        return real_ShowCursor(TRUE);
+    }
+    return 1;
+}
+
 static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
 {
     WNDPROC orig_proc = (WNDPROC) GetPropW(hWnd, L"KPM_ORIG_WNDPROC");
@@ -89,6 +102,41 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
     }
 
     switch (Msg) {
+        /* Forward mouse events to Elo touch virtualizer for Station 0 / Station 1 */
+        case WM_LBUTTONDOWN: {
+            int screen = (hWnd == s_station1_hwnd) ? 1 : 0;
+            RECT rc;
+            GetClientRect(hWnd, &rc);
+            int cw = rc.right - rc.left;
+            int ch = rc.bottom - rc.top;
+            kpm_touch_post_event(screen, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 1);
+            SetCapture(hWnd);
+            break;
+        }
+
+        case WM_MOUSEMOVE: {
+            if (wParam & MK_LBUTTON) {
+                int screen = (hWnd == s_station1_hwnd) ? 1 : 0;
+                RECT rc;
+                GetClientRect(hWnd, &rc);
+                int cw = rc.right - rc.left;
+                int ch = rc.bottom - rc.top;
+                kpm_touch_post_event(screen, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 2);
+            }
+            break;
+        }
+
+        case WM_LBUTTONUP: {
+            int screen = (hWnd == s_station1_hwnd) ? 1 : 0;
+            RECT rc;
+            GetClientRect(hWnd, &rc);
+            int cw = rc.right - rc.left;
+            int ch = rc.bottom - rc.top;
+            kpm_touch_post_event(screen, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 4);
+            ReleaseCapture();
+            break;
+        }
+
         /* Allow Windows to process non-client clicks for dragging, title bar buttons, menus */
         case WM_NCLBUTTONDOWN:
         case WM_NCLBUTTONUP:
@@ -330,6 +378,11 @@ static const struct hook_symbol kpm_window_syms[] = {
         .name = "GetCursorPos",
         .patch = my_GetCursorPos,
         .link = (void **) &real_GetCursorPos,
+    },
+    {
+        .name = "ShowCursor",
+        .patch = my_ShowCursor,
+        .link = (void **) &real_ShowCursor,
     },
 };
 
