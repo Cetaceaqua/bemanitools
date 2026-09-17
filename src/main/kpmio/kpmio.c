@@ -133,16 +133,16 @@ bool kpm_io_read_inputs(void)
     }
     s_coin_key_last = coin_key;
 
-    /* Virtual Hopper payout timer update */
+    /* Virtual Hopper payout timer update (~12.5 medals/sec arcade hopper rate) */
     if (s_hopper_state == 1) {
         DWORD now_hopper = GetTickCount();
-        if (now_hopper - s_last_hopper_tick >= 100) { /* 1 medal every 100ms */
+        if (now_hopper - s_last_hopper_tick >= 80) { /* 1 medal every 80ms */
             s_last_hopper_tick = now_hopper;
             s_payout_paid++;
             if (s_payout_paid >= s_payout_demanded) {
                 s_hopper_state = 2; /* Finished */
                 if (s_log_info) {
-                    s_log_info("kpmio", "Hopper payout complete: %u medals dispensed", s_payout_paid);
+                    s_log_info("kpmio", "Virtual Hopper: Payout complete (%u medals dispensed)", s_payout_paid);
                 }
             }
         }
@@ -172,13 +172,24 @@ uint16_t kpm_io_get_coin_pulse(void)
 
 void kpm_io_payout_demand(uint16_t count)
 {
+    if (count == 0) {
+        s_hopper_state = 0;
+        s_payout_demanded = 0;
+        s_payout_paid = 0;
+        return;
+    }
+
+    if (s_hopper_state == 1 && s_payout_demanded == count) {
+        return; /* Already actively dispensing this demand */
+    }
+
     s_payout_demanded = count;
     s_payout_paid = 0;
-    s_hopper_state = (count > 0) ? 1 : 0;
+    s_hopper_state = 1;
     s_last_hopper_tick = GetTickCount();
 
     if (s_log_info) {
-        s_log_info("kpmio", "Hopper payout demand: %u medals", count);
+        s_log_info("kpmio", "Virtual Hopper: Payout demand initiated for %u medals", count);
     }
 }
 

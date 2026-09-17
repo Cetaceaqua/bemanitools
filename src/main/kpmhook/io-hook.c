@@ -17,6 +17,7 @@
 #define ADDR_SUBBOARD_CHECK_JUMP  0x00411CC4
 #define ADDR_DWORD_1ACFCB8        0x01ACFCB8
 #define ADDR_DWORD_1ACFCBC        0x01ACFCBC
+#define ADDR_CHECK_PCSUB_MODE_JUMP   0x0041ECF7
 #define ADDR_NO_SUBBOARD_CHECK_CALL  0x0041F4DE
 #define ADDR_BOOT_CREDITS_VALUE   0x0041F5E3
 #define ADDR_SECRET_MENU_COUNT_DEC   0x0042C199
@@ -326,6 +327,22 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
     static const uint8_t nops6[6] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
     patch_memory(ADDR_SUBBOARD_CHECK_JUMP, nops6, sizeof(nops6));
     log_info("Patched subboard check jump at 0x%08X to NOPs", ADDR_SUBBOARD_CHECK_JUMP);
+
+    /* Patch 0x0041ECF7: In CBootStatus::CheckPCSUB (0x0041EBC0), force step to 700.
+     * Originally: neg eax; sbb eax, eax; and eax, 258h (9 bytes: F7 D8 19 C0 25 58 02 00 00)
+     * We replace with: mov eax, 258h; nop; nop; nop; nop (B8 58 02 00 00 90 90 90 90)
+     * Followed by original: add eax, 64h -> eax becomes 700 (2BCh).
+     * This ensures CheckPCSUB immediately advances to step 700 regardless of NO_SUBBOARD=0 or 1,
+     * completely bypassing the missing PLX 9030 PCI hardware test (error 0xF7D0).
+     */
+    static const uint8_t force_step_700[9] = {
+        0xB8, 0x58, 0x02, 0x00, 0x00, /* mov eax, 258h */
+        0x90, 0x90, 0x90, 0x90        /* 4 x NOP */
+    };
+    patch_memory(ADDR_CHECK_PCSUB_MODE_JUMP, force_step_700, sizeof(force_step_700));
+    log_info(
+        "Patched CheckPCSUB step at 0x%08X to force step 700 (NO_SUBBOARD=0 bypass active)",
+        ADDR_CHECK_PCSUB_MODE_JUMP);
 
     /* Patch boot initial credit grant (sub_41F410).
      * By default the game gives 1000 credits on boot if NO_SUBBOARD is enabled.
@@ -753,8 +770,8 @@ void kpm_io_hook_update(void)
 
     /* Keep subboard instance helper buffer in sync if active */
     uint32_t *p_subboard = (uint32_t *) ADDR_DWORD_1ACFCBC;
-    if (p_subboard && *p_subboard) {
-        uint8_t *subboard_base = (uint8_t *) (*p_subboard);
+    uint8_t *subboard_base = (p_subboard && *p_subboard) ? (uint8_t *) (*p_subboard) : NULL;
+    if (subboard_base) {
         subboard_base[616] = s_cabinet_jumper_byte;
     }
 
@@ -803,6 +820,60 @@ void kpm_io_hook_update(void)
         if (p_idle_timer) {
             *p_idle_timer = GetTickCount();
         }
+    }
+
+    /* --- Virtual Hopper Engine (出币/退币料斗仿真引擎闭环) ---
+     * Addresses:
+     *   subwrap + 420: uint16_t state (0=Idle, 10=ReqSent, 20=WaitAck, 50=PayingOut, 100=Error)
+     *   subwrap + 422: uint16_t requested payout amount
+     *   subwrap + 424: uint16_t current paid count (displayed in game UI)
+     *   subwrap + 432: uint32_t payout transaction tag / sequence
+     *   subwrap + 436: uint32_t status seq
+     *   subwrap + 444: uint32_t result status (1=PayingOut, 2=Complete, 3=Empty, 4=Jammed)
+     *
+     * In subboard_base (dword_1ACFCBC):
+     *   subboard + 691: uint8_t status (1=PayingOut, 2=Complete)
+     *   subboard + 692: uint16_t paid count
+     *   subboard + 696: uint32_t response seq
+     *   subboard + 708: uint16_t error code (0=No error)
+     *   subboard + 712: uint32_t error seq
+     */
+    uint16_t hopper_state = *((uint16_t *) (subwrap_base + 420));
+    uint16_t req_payout = *((uint16_t *) (subwrap_base + 422));
+
+    /* Capture new payout requests from game logic or test menu */
+    if (hopper_state == 0 || hopper_state == 10 || hopper_state == 20) {
+        if (req_payout > 0) {
+            kpm_io_payout_demand(req_payout);
+        }
+    }
+
+    /* State 20 (WaitAck): simulate subboard acknowledging error check command 288 */
+    if (hopper_state == 20 && subboard_base) {
+        *((uint16_t *) (subboard_base + 708)) = 0; /* No error */
+        *((uint32_t *) (subboard_base + 712)) = *((uint32_t *) (subwrap_base + 436)) + 1;
+    }
+
+    /* State 50 (PayingOut): synchronize subboard state with virtual hopper engine */
+    if (hopper_state == 50) {
+        uint32_t *p_idle_timer = get_slot_idle_timer();
+        if (p_idle_timer) {
+            *p_idle_timer = GetTickCount(); /* Prevent idle timeout during large payouts */
+        }
+
+        if (subboard_base) {
+            uint16_t paid_count = 0;
+            uint8_t h_status = kpm_io_get_payout_status(&paid_count);
+
+            if (h_status == 1 || h_status == 2) {
+                subboard_base[691] = h_status;
+                *((uint16_t *) (subboard_base + 692)) = paid_count;
+                *((uint32_t *) (subboard_base + 696)) = *((uint32_t *) (subwrap_base + 432)) + 1;
+            }
+        }
+    } else if (hopper_state == 0) {
+        /* Reset virtual hopper when game returns to idle */
+        kpm_io_payout_demand(0);
     }
 
     /* Drain the PCSub serial command queue at offset 532 (32 slots of 12 bytes) */
