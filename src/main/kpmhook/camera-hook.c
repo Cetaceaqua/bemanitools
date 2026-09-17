@@ -9,7 +9,9 @@
 #include "kpmhook/camera-hook.h"
 #include "util/log.h"
 
-/* DirectShow GUIDs */
+/* -------------------------------------------------------------------------
+ * DirectShow GUIDs
+ * ------------------------------------------------------------------------- */
 static const GUID CLSID_SystemDeviceEnum_Val =
     { 0x62BE5D10, 0x60EB, 0x11D0, { 0xBD, 0x3B, 0x00, 0xA0, 0xC9, 0x11, 0xCE, 0x86 } };
 
@@ -22,7 +24,19 @@ static const GUID IID_ICreateDevEnum_Val =
 static const GUID IID_IPropertyBag_Val =
     { 0x55272A00, 0x42CB, 0x11CE, { 0x81, 0x35, 0x00, 0xAA, 0x00, 0x4B, 0xB8, 0x51 } };
 
-/* Direct COM vtable interface for ICreateDevEnum to avoid Windows SDK header differences */
+/* MEDIATYPE_Video: {73646976-0000-0010-8000-00AA00389B71} */
+static const GUID MEDIATYPE_Video_Val =
+    { 0x73646976, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71 } };
+
+/* MEDIASUBTYPE_RGB32: {E436EB7E-524F-11CE-9F53-0020AF0BA770} */
+static const GUID MEDIASUBTYPE_RGB32_Val =
+    { 0xE436EB7E, 0x524F, 0x11CE, { 0x9F, 0x53, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70 } };
+
+/* Binary Addresses for Media Type Request in sub_41CAC0 */
+static const uintptr_t ADDR_MEDIA_MAJORTYPE = 0x00640960;
+static const uintptr_t ADDR_MEDIA_SUBTYPE   = 0x006461F8;
+
+/* Direct COM vtable interface for ICreateDevEnum */
 typedef struct ICreateDevEnumVtbl {
     HRESULT (STDMETHODCALLTYPE *QueryInterface)(void *this_ptr, REFIID riid, void **ppv);
     ULONG   (STDMETHODCALLTYPE *AddRef)(void *this_ptr);
@@ -177,7 +191,7 @@ static __declspec(naked) void sub_41C730_hook(void)
 static const uintptr_t SUB_41CE30_ADDR = 0x0041CE30;
 static const uintptr_t SUB_41CE45_ADDR = 0x0041CE45;
 
-static void my_camera_wait_first_frame(void *sample_grabber, long *p_buf_size)
+static void my_camera_wait_first_frame(void *sample_grabber, long *p_buf_size, void *cam_this)
 {
     if (!sample_grabber || !p_buf_size) return;
 
@@ -190,7 +204,7 @@ static void my_camera_wait_first_frame(void *sample_grabber, long *p_buf_size)
     for (int attempt = 0; attempt < 500; attempt++) {
         HRESULT hr = get_buf(sample_grabber, p_buf_size, NULL);
         if (SUCCEEDED(hr) && *p_buf_size > 0) {
-            log_info("First camera frame received! Buffer size: %ld bytes (waited %d ms)",
+            log_info("First camera frame ready! Buffer size: %ld bytes (waited %d ms)",
                      *p_buf_size, attempt * 10);
             return;
         }
@@ -198,9 +212,9 @@ static void my_camera_wait_first_frame(void *sample_grabber, long *p_buf_size)
     }
 
     log_warning("Timeout waiting for first camera frame (5 seconds). Buffer size: %ld", *p_buf_size);
-    /* Fallback default size (640x480x2 YUY2) if camera is slow or failed */
+    /* Fallback default size (640x480x4 RGB32) if camera frame is delayed */
     if (*p_buf_size <= 0) {
-        *p_buf_size = 640 * 480 * 2;
+        *p_buf_size = 640 * 480 * 4;
     }
 }
 
@@ -210,10 +224,11 @@ static __declspec(naked) void sub_41ce30_hook(void)
         mov eax, [ebx]          // ISampleGrabber pointer
         lea edi, [esi + 0x1C]   // &this->m_buffer_size
         pushad
-        push edi
-        push eax
+        push esi                // CCameraDevice*
+        push edi                // &this->m_buffer_size
+        push eax                // ISampleGrabber*
         call my_camera_wait_first_frame
-        add esp, 8
+        add esp, 12
         popad
         jmp dword ptr [SUB_41CE45_ADDR]
     }
@@ -252,6 +267,51 @@ static __declspec(naked) void sub_41d3e9_hook(void)
 }
 
 /* -------------------------------------------------------------------------
+ * Hook 4: CCameraDevice::ThreadProc RGB32 Frame Transfer (0x0041D44C)
+ * Replaces original UYVY floating point conversion loop with fast RGB32
+ * vertical flip & copy into m_pBuf1 (for QR/AR) and m_pBuf2 (for D3D texture).
+ * ------------------------------------------------------------------------- */
+static const uintptr_t SUB_41D44C_ADDR = 0x0041D44C;
+static const uintptr_t SUB_41D62C_CONT = 0x0041D62C;
+
+static void kpm_camera_copy_frame(void *cam_this)
+{
+    uint8_t *cam = (uint8_t *) cam_this;
+    int width = *(int *) (cam + 0x24);
+    int height = *(int *) (cam + 0x28);
+    uint8_t *src = *(uint8_t **) (cam + 0x20); // Captured buffer from GetCurrentBuffer
+    uint8_t *dst1 = *(uint8_t **) (cam + 0x2C); // Buffer 1 (for qrPut/AR)
+    uint8_t *dst2 = *(uint8_t **) (cam + 0x30); // Buffer 2 (for Direct3D texture)
+
+    if (src && dst1 && dst2 && width > 0 && height > 0) {
+        int stride = width * 4;
+        /* DirectShow RGB32 bitmaps are bottom-up (biHeight > 0),
+         * so flip rows vertically so the video is right-side up:
+         */
+        for (int y = 0; y < height; y++) {
+            const uint8_t *s_row = src + (height - 1 - y) * stride;
+            uint8_t *d_row = dst1 + y * stride;
+            memcpy(d_row, s_row, stride);
+        }
+        memcpy(dst2, dst1, width * height * 4);
+    }
+}
+
+static __declspec(naked) void sub_41d44c_hook(void)
+{
+    __asm {
+        pushad
+        push esi                // CCameraDevice*
+        call kpm_camera_copy_frame
+        add esp, 4
+        popad
+
+        xor ebx, ebx            // Restore ebx = 0 for cmp [esi+78h], bl
+        jmp dword ptr [SUB_41D62C_CONT]
+    }
+}
+
+/* -------------------------------------------------------------------------
  * Public Initialization
  * ------------------------------------------------------------------------- */
 void kpm_camera_hook_init(void)
@@ -259,17 +319,29 @@ void kpm_camera_hook_init(void)
     /* 1. Enumerate available DirectShow cameras and log them */
     kpm_camera_enum_devices();
 
-    /* 2. Install CCameraDevice::SetWindow null safety hook (7 bytes) */
+    /* 2. Patch requested media type in sub_41CAC0 from UYVY to RGB32.
+     * Original arcade used UYVY, but PC webcams provide MJPG/YUY2.
+     * DirectShow's Color Space Converter can convert any webcam to MEDIASUBTYPE_RGB32.
+     */
+    patch_memory(ADDR_MEDIA_MAJORTYPE, &MEDIATYPE_Video_Val, sizeof(GUID));
+    patch_memory(ADDR_MEDIA_SUBTYPE, &MEDIASUBTYPE_RGB32_Val, sizeof(GUID));
+    log_info("Patched camera requested media type to MEDIATYPE_Video / MEDIASUBTYPE_RGB32");
+
+    /* 3. Install CCameraDevice::SetWindow null safety hook (7 bytes) */
     patch_jmp(SUB_41C730_ADDR, sub_41C730_hook, 7);
     log_info("Installed CCameraDevice::SetWindow null safety hook at 0x%08X", SUB_41C730_ADDR);
 
-    /* 3. Install first-frame wait loop polling hook (21 bytes) */
+    /* 4. Install first-frame wait loop polling hook (21 bytes) */
     patch_jmp(SUB_41CE30_ADDR, sub_41ce30_hook, 21);
     log_info("Installed CCameraDevice::StartCapture wait loop hook at 0x%08X", SUB_41CE30_ADDR);
 
-    /* 4. Install ThreadProc ISampleGrabber null safety hook (8 bytes) */
+    /* 5. Install ThreadProc ISampleGrabber null safety hook (8 bytes) */
     patch_jmp(SUB_41D3E9_ADDR, sub_41d3e9_hook, 8);
     log_info("Installed CCameraDevice::ThreadProc grabber null hook at 0x%08X", SUB_41D3E9_ADDR);
+
+    /* 6. Install ThreadProc RGB32 frame copy & vertical flip hook (6 bytes) */
+    patch_jmp(SUB_41D44C_ADDR, sub_41d44c_hook, 6);
+    log_info("Installed RGB32 frame copy & vertical flip hook at 0x%08X", SUB_41D44C_ADDR);
 
     log_info("Camera subsystem initialized successfully.");
 }
