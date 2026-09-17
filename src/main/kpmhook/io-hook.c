@@ -42,6 +42,7 @@
 #define ADDR_STATION_CTX_1           0x00E652E4
 #define ADDR_STATION_CTX_2           0x00E652E8
 
+#define ADDR_NVRAM_SUBBOARD_BRANCH   0x00504695
 #define ADDR_NVRAM_MEMSET_CALL       0x005046A7
 #define NVRAM_SRAM_SIZE              0x00080000 /* 512 KB battery-backed SRAM */
 #define ADDR_FUNC_SUB_4532A0         0x004532A0
@@ -538,6 +539,17 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
             ADDR_HARDWARE_TEST_MODE_1);
     }
 
+
+    /* Patch 0x00504695: In sub_504680, NOP out `jz loc_5049A0` (6 bytes: 0F 84 05 03 00 00)
+     * so that whether NO_SUBBOARD is 0 or 1, backup memory mapping always targets the
+     * internal SRAM buffer at 0x01D02970 instead of querying physical PLX 9030 BAR2 memory.
+     */
+    static const uint8_t nops6_nvram[6] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
+    patch_memory(ADDR_NVRAM_SUBBOARD_BRANCH, nops6_nvram, sizeof(nops6_nvram));
+    log_info(
+        "Patched NVRAM subboard branch at 0x%08X to NOPs (forces SRAM buffer at 0x%08X)",
+        ADDR_NVRAM_SUBBOARD_BRANCH,
+        ADDR_NVRAM_SRAM_BUFFER);
 
     /* Hook sub_504680 memset call to load battery SRAM NVRAM from disk */
     patch_call(ADDR_NVRAM_MEMSET_CALL, kpm_nvram_init);
