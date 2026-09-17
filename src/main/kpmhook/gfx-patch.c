@@ -11,6 +11,7 @@
 
 static void kpm_gfx_install_texture_crash_hook(void);
 static void kpm_station_install_safety_hook(void);
+static void kpm_camera_install_safety_hook(void);
 
 /* Address of: mov byte ptr ds:[19BD328h], 1 in KtDirect3D9_Initialize */
 #define ADDR_FULLSCREEN_ALLOWED_MOV  ((void *) 0x0058254E)
@@ -97,6 +98,9 @@ void kpm_gfx_patch_apply(bool windowed)
     uint8_t patch_windowed;
     uint8_t patch_format;
 
+    /* Always install binary safety / crash prevention hooks regardless of windowed mode */
+    kpm_gfx_install_texture_crash_hook();
+
     if (!windowed) {
         log_info("Windowed mode patch disabled by configuration");
         return;
@@ -137,9 +141,6 @@ void kpm_gfx_patch_apply(bool windowed)
         log_info("Patched backbuffer format -> D3DFMT_X8R8G8B8 (0x16) at 0x%p",
                  ADDR_BACKBUFFER_FORMAT_MOV);
     }
-
-    /* Install texture crash prevention hooks (sub_595060) */
-    kpm_gfx_install_texture_crash_hook();
 }
 
 /* sub_595060 texture loader protection */
@@ -239,6 +240,9 @@ static void kpm_gfx_install_texture_crash_hook(void)
 
     /* Install station count safety hook */
     kpm_station_install_safety_hook();
+
+    /* Install camera null pointer safety hook */
+    kpm_camera_install_safety_hook();
 }
 
 /* sub_4C7580 station safety hook (handles station=1 where station[1] is NULL) */
@@ -279,3 +283,55 @@ static void kpm_station_install_safety_hook(void)
 
     log_info("Installed station count safety hook at 0x004C7621 (sub_4C7580)");
 }
+
+/* CCameraDevice::SetWindow (0x0041C730) null camera safety hook
+ * When IGNORE_CAMERA=1 or camera hardware is absent, dword_1ACE854 is NULL.
+ * In CARCertify step 0 (0x004A5140) and step 22 (0x004A44B3), the game invokes
+ * CCameraDevice::SetWindow via eax without checking if the camera device pointer is NULL.
+ * This hook checks if this (eax) is NULL; if so, safely returns 0 (ret 8).
+ */
+static const uintptr_t SUB_41C730_ADDR = 0x0041C730;
+static const uintptr_t SUB_41C730_CONT = 0x0041C737;
+
+static void log_camera_null_device(void)
+{
+    log_info("CCameraDevice::SetWindow(0x0041C730): this (eax) is NULL (camera absent). Handled safely.");
+}
+
+static __declspec(naked) void sub_41C730_hook(void)
+{
+    __asm {
+        test eax, eax
+        jnz normal_path
+
+        pushad
+        call log_camera_null_device
+        popad
+
+        xor eax, eax
+        ret 8
+
+    normal_path:
+        mov ecx, [eax + 0x44]
+        add ecx, [esp + 4]
+        jmp dword ptr [SUB_41C730_CONT]
+    }
+}
+
+static void kpm_camera_install_safety_hook(void)
+{
+    DWORD old_prot;
+    uint8_t jmp_buf[7];
+
+    /* 7 bytes at 0x0041C730: 5-byte JMP + 2 NOPs */
+    VirtualProtect((void *) SUB_41C730_ADDR, 7, PAGE_EXECUTE_READWRITE, &old_prot);
+    jmp_buf[0] = 0xE9;
+    *((int32_t *) &jmp_buf[1]) = (int32_t) ((uintptr_t) sub_41C730_hook - (SUB_41C730_ADDR + 5));
+    jmp_buf[5] = 0x90;
+    jmp_buf[6] = 0x90;
+    memcpy((void *) SUB_41C730_ADDR, jmp_buf, 7);
+    VirtualProtect((void *) SUB_41C730_ADDR, 7, old_prot, &old_prot);
+
+    log_info("Installed camera null pointer safety hook at 0x0041C730 (CCameraDevice::SetWindow)");
+}
+
