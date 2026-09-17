@@ -97,6 +97,18 @@ void kpm_touch_post_event(int screen, int client_x, int client_y, int client_w, 
         q->last_y = raw_y;
     }
 
+    /* If the last pending event in the queue is already a MOVE event and this is also a MOVE,
+     * coalesce into it with the newest coordinates instead of bloating the FIFO queue */
+    if (type == 2 && q->head != q->tail) {
+        int last_idx = (q->head - 1 + TOUCH_QUEUE_SIZE) % TOUCH_QUEUE_SIZE;
+        if (q->events[last_idx].type == 2) {
+            q->events[last_idx].x = raw_x;
+            q->events[last_idx].y = raw_y;
+            LeaveCriticalSection(&q->cs);
+            return;
+        }
+    }
+
     int next_head = (q->head + 1) % TOUCH_QUEUE_SIZE;
     if (next_head != q->tail) {
         q->events[q->head].x = raw_x;
@@ -158,6 +170,13 @@ static int __cdecl my_EloGetTouch(int *touch_data, int a2, int a3, unsigned int 
     if (q->tail != q->head) {
         struct elo_touch_event ev = q->events[q->tail];
         q->tail = (q->tail + 1) % TOUCH_QUEUE_SIZE;
+
+        /* If consecutive MOVE events are queued up, skip directly to the latest one */
+        while (ev.type == 2 && q->tail != q->head && q->events[q->tail].type == 2) {
+            ev = q->events[q->tail];
+            q->tail = (q->tail + 1) % TOUCH_QUEUE_SIZE;
+        }
+
         LeaveCriticalSection(&q->cs);
 
         touch_data[0] = ev.x;
@@ -166,7 +185,7 @@ static int __cdecl my_EloGetTouch(int *touch_data, int a2, int a3, unsigned int 
         touch_data[3] = ev.type;
 
         static uint32_t s_log_touch = 0;
-        if ((s_log_touch++ % 30) == 0 || ev.type == 1 || ev.type == 4) {
+        if ((s_log_touch++ % 60) == 0 || ev.type == 1 || ev.type == 4) {
             log_info("EloGetTouch[screen %u]: x=%d, y=%d, type=%d (1=Down, 2=Move, 4=Up)",
                      screen, ev.x, ev.y, ev.type);
         }
