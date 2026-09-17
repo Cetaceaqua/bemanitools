@@ -24,6 +24,7 @@ static DWORD s_coin_last_repeat_tick = 0;
 static uint16_t s_payout_demanded = 0;
 static uint16_t s_payout_paid = 0;
 static uint8_t s_hopper_state = 0; /* 0=Idle, 1=Paying out, 2=Finished */
+static bool s_hopper_sensor = false; /* Optical coin sensor pulse */
 static DWORD s_last_hopper_tick = 0;
 
 void kpm_io_set_loggers(
@@ -60,6 +61,7 @@ bool kpm_io_init(
     s_coin_press_start_tick = 0;
     s_coin_last_repeat_tick = 0;
     s_hopper_state = 0;
+    s_hopper_sensor = false;
     s_payout_demanded = 0;
     s_payout_paid = 0;
 
@@ -136,16 +138,24 @@ bool kpm_io_read_inputs(void)
     /* Virtual Hopper payout timer update (~12.5 medals/sec arcade hopper rate) */
     if (s_hopper_state == 1) {
         DWORD now_hopper = GetTickCount();
-        if (now_hopper - s_last_hopper_tick >= 80) { /* 1 medal every 80ms */
+        DWORD elapsed = now_hopper - s_last_hopper_tick;
+
+        /* Optical sensor is active (coin passing photodiode) during 0..30ms of the 80ms period */
+        s_hopper_sensor = (elapsed < 30);
+
+        if (elapsed >= 80) { /* 1 medal every 80ms */
             s_last_hopper_tick = now_hopper;
             s_payout_paid++;
             if (s_payout_paid >= s_payout_demanded) {
                 s_hopper_state = 2; /* Finished */
+                s_hopper_sensor = false;
                 if (s_log_info) {
                     s_log_info("kpmio", "Virtual Hopper: Payout complete (%u medals dispensed)", s_payout_paid);
                 }
             }
         }
+    } else {
+        s_hopper_sensor = false;
     }
 
     return true;
@@ -174,6 +184,7 @@ void kpm_io_payout_demand(uint16_t count)
 {
     if (count == 0) {
         s_hopper_state = 0;
+        s_hopper_sensor = false;
         s_payout_demanded = 0;
         s_payout_paid = 0;
         return;
@@ -186,6 +197,7 @@ void kpm_io_payout_demand(uint16_t count)
     s_payout_demanded = count;
     s_payout_paid = 0;
     s_hopper_state = 1;
+    s_hopper_sensor = true;
     s_last_hopper_tick = GetTickCount();
 
     if (s_log_info) {
@@ -193,12 +205,37 @@ void kpm_io_payout_demand(uint16_t count)
     }
 }
 
-uint8_t kpm_io_get_payout_status(uint16_t *paid_count)
+void kpm_io_payout_stop(void)
+{
+    if (s_hopper_state == 1) {
+        s_hopper_state = 2; /* Force transition to Finished / Stopped */
+        s_hopper_sensor = false;
+        if (s_log_info) {
+            s_log_info("kpmio", "Virtual Hopper: Payout stopped manually at %u medals", s_payout_paid);
+        }
+    }
+}
+
+uint8_t kpm_io_get_payout_detail(
+    uint16_t *paid_count,
+    bool *motor_running,
+    bool *sensor_active)
 {
     if (paid_count) {
         *paid_count = s_payout_paid;
     }
+    if (motor_running) {
+        *motor_running = (s_hopper_state == 1);
+    }
+    if (sensor_active) {
+        *sensor_active = s_hopper_sensor;
+    }
     return s_hopper_state;
+}
+
+uint8_t kpm_io_get_payout_status(uint16_t *paid_count)
+{
+    return kpm_io_get_payout_detail(paid_count, NULL, NULL);
 }
 
 void kpm_io_set_lamps(uint32_t lamp_bits)

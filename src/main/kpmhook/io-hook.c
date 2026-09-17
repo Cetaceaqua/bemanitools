@@ -20,6 +20,7 @@
 #define ADDR_CHECK_PCSUB_MODE_JUMP   0x0041ECF7
 #define ADDR_NO_SUBBOARD_CHECK_CALL  0x0041F4DE
 #define ADDR_BOOT_CREDITS_VALUE   0x0041F5E3
+#define ADDR_HOPPER_PAY_STOP_FUNC    0x005C93A0
 #define ADDR_SECRET_MENU_COUNT_DEC   0x0042C199
 #define ADDR_SECRET_MENU_DRAW_FILTER 0x0042C550
 #define ADDR_ATTRACT_TIMEOUT_1       0x00473670
@@ -302,10 +303,43 @@ static uint32_t *get_slot_idle_timer(void)
     return NULL;
 }
 
+static const uintptr_t SUB_5C93A0_CONT = 0x005C93AB;
+
+static void my_sub_5C93A0_impl(void)
+{
+    log_info("sub_5C93A0 intercepted: Emergency stopping virtual hopper payout");
+    kpm_io_payout_stop();
+}
+
+static __declspec(naked) void my_sub_5C93A0(void)
+{
+    __asm {
+        pushad
+        call my_sub_5C93A0_impl
+        popad
+
+        push ebp
+        mov ebp, esp
+        and esp, 0xFFFFFFF8
+        mov eax, dword ptr ds:[0x01ACFCB8]
+        jmp dword ptr [SUB_5C93A0_CONT]
+    }
+}
+
 void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
 {
     log_info("Initializing PCSub arcade I/O virtualization...");
     s_cfg = *cfg;
+
+    /* Hook sub_5C93A0 (Hopper Pay Stop / Command 285) */
+    uint8_t jmp_stop[11] = {
+        0xE9, 0x00, 0x00, 0x00, 0x00, /* jmp rel32 */
+        0x90, 0x90, 0x90, 0x90, 0x90, 0x90 /* 6 NOPs */
+    };
+    uint32_t rel_stop = (uint32_t) my_sub_5C93A0 - (ADDR_HOPPER_PAY_STOP_FUNC + 5);
+    memcpy(&jmp_stop[1], &rel_stop, sizeof(rel_stop));
+    patch_memory(ADDR_HOPPER_PAY_STOP_FUNC, jmp_stop, sizeof(jmp_stop));
+    log_info("Hooked sub_5C93A0 at 0x%08X to intercept hopper pay stop", ADDR_HOPPER_PAY_STOP_FUNC);
 
     /* Note: kpm_io_init is deferred to kpm_io_hook_update() on the first frame
      * to avoid Windows Loader Lock deadlock during DllMain process attach. */
@@ -796,21 +830,45 @@ void kpm_io_hook_update(void)
         ctx2[144] = 0;
     }
 
+    /* Ensure subboard ready flag (subwrap + 284) is active so sub_5C9C40 runs all state machines */
+    *((uint16_t *) (subwrap_base + 284)) = 1;
+
+    /* Feed hardware buttons to subboard raw input buffer (offset 4) */
+    if (subboard_base) {
+        *((uint32_t *) (subboard_base + 4)) = btn_mask;
+    }
+
     /* Offset 476 (0x1DC): MEDAL IN pulse counter
      *   Directly adds playable Game Credits via sub_401610(count * medal_rate, 0).
+     *   Also feeds Selector 1 hardware registers (632..634) for Test Mode verification.
      */
     uint16_t medals = kpm_io_get_medal_pulse();
     if (medals > 0) {
         *((uint16_t *) (subwrap_base + 476)) += medals;
+        if (subboard_base) {
+            subboard_base[632] = 1; /* In-pulse flag */
+            subboard_base[633] += 1; /* Seq */
+            *((uint16_t *) (subboard_base + 634)) = medals; /* Count */
+            subboard_base[625] = 0; /* Blocker normal */
+            *((uint32_t *) (subboard_base + 628)) += 1;
+        }
         log_info("Dispatched %u medal pulse(s) to CPcSubWrap (offset 476)", medals);
     }
 
     /* Offset 508 (0x1FC): COIN IN pulse counter
      *   Increments 100-yen coin meter accounting display via sub_401610(count, 4).
+     *   Also feeds Selector 2 hardware registers (664..666) for Test Mode verification.
      */
     uint16_t coins = kpm_io_get_coin_pulse();
     if (coins > 0) {
         *((uint16_t *) (subwrap_base + 508)) += coins;
+        if (subboard_base) {
+            subboard_base[664] = 1; /* In-pulse flag */
+            subboard_base[665] += 1; /* Seq */
+            *((uint16_t *) (subboard_base + 666)) = coins; /* Count */
+            subboard_base[659] = 0; /* Blocker normal */
+            *((uint32_t *) (subboard_base + 660)) += 1;
+        }
         log_info("Dispatched %u coin pulse(s) to CPcSubWrap (offset 508)", coins);
     }
 
@@ -835,6 +893,10 @@ void kpm_io_hook_update(void)
      *   subboard + 691: uint8_t status (1=PayingOut, 2=Complete)
      *   subboard + 692: uint16_t paid count
      *   subboard + 696: uint32_t response seq
+     *   subboard + 700: uint8_t motor status (1=Running, 0=Stopped)
+     *   subboard + 701: uint8_t optical sensor (1=ON / Coin detected, 0=OFF)
+     *   subboard + 702: uint8_t overall status (0=NORMAL)
+     *   subboard + 704: uint32_t test mode query response seq
      *   subboard + 708: uint16_t error code (0=No error)
      *   subboard + 712: uint32_t error seq
      */
@@ -854,16 +916,24 @@ void kpm_io_hook_update(void)
         *((uint32_t *) (subboard_base + 712)) = *((uint32_t *) (subwrap_base + 436)) + 1;
     }
 
-    /* State 50 (PayingOut): synchronize subboard state with virtual hopper engine */
-    if (hopper_state == 50) {
-        uint32_t *p_idle_timer = get_slot_idle_timer();
-        if (p_idle_timer) {
-            *p_idle_timer = GetTickCount(); /* Prevent idle timeout during large payouts */
-        }
+    /* Synchronize virtual hopper physical registers (motor, optical sensor, counters) */
+    if (subboard_base) {
+        uint16_t paid_count = 0;
+        bool motor_running = false;
+        bool sensor_active = false;
+        uint8_t h_status = kpm_io_get_payout_detail(&paid_count, &motor_running, &sensor_active);
 
-        if (subboard_base) {
-            uint16_t paid_count = 0;
-            uint8_t h_status = kpm_io_get_payout_status(&paid_count);
+        /* Physical register emulation for Test Mode and Runtime */
+        subboard_base[700] = motor_running ? 1 : 0;
+        subboard_base[701] = sensor_active ? 1 : 0;
+        subboard_base[702] = 0; /* 0: NORMAL */
+        *((uint32_t *) (subboard_base + 704)) += 1;
+
+        if (hopper_state == 50) {
+            uint32_t *p_idle_timer = get_slot_idle_timer();
+            if (p_idle_timer) {
+                *p_idle_timer = GetTickCount(); /* Prevent idle timeout during large payouts */
+            }
 
             if (h_status == 1 || h_status == 2) {
                 subboard_base[691] = h_status;
@@ -871,7 +941,9 @@ void kpm_io_hook_update(void)
                 *((uint32_t *) (subboard_base + 696)) = *((uint32_t *) (subwrap_base + 432)) + 1;
             }
         }
-    } else if (hopper_state == 0) {
+    }
+
+    if (hopper_state == 0) {
         /* Reset virtual hopper when game returns to idle */
         kpm_io_payout_demand(0);
     }

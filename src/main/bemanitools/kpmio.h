@@ -115,6 +115,24 @@ uint16_t kpm_io_get_coin_pulse(void);
 void kpm_io_payout_demand(uint16_t count);
 
 /**
+ * Immediately stop the virtual hopper payout motor.
+ */
+void kpm_io_payout_stop(void);
+
+/**
+ * Query detailed virtual hopper physical state.
+ *
+ * @param[out] paid_count Cumulative paid medals count.
+ * @param[out] motor_running Whether hopper DC motor is currently spinning.
+ * @param[out] sensor_active Whether coin photodiode sensor is detecting coin pass.
+ * @return Hopper state (0: Idle, 1: Paying out, 2: Finished, 3: Error).
+ */
+uint8_t kpm_io_get_payout_detail(
+    uint16_t *paid_count,
+    bool *motor_running,
+    bool *sensor_active);
+
+/**
  * Query current virtual hopper status.
  *
  * @param[out] paid_count Cumulative paid medals count.

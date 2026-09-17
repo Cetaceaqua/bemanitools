@@ -9,5 +9,7 @@ EXPORTS
     kpm_io_get_medal_pulse
     kpm_io_get_coin_pulse
     kpm_io_payout_demand
+    kpm_io_payout_stop
     kpm_io_get_payout_status
+    kpm_io_get_payout_detail
     kpm_io_set_lamps
