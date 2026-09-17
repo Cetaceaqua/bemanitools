@@ -16,6 +16,7 @@
 #include "kpmhook/io-hook.h"
 #include "kpmhook/reader-hook.h"
 #include "kpmhook/movie-hook.h"
+#include "kpmhook/camera-hook.h"
 #include "util/defs.h"
 
 #include "util/log.h"
@@ -115,6 +116,9 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
 
     /* Hook DirectShow VMR9 movie playback, COM apartment, and Step 17 watchdog */
     kpm_movie_hook_init(&config_io);
+
+    /* Hook DirectShow camera capture, hardware enumeration, and safety fallback */
+    kpm_camera_hook_init();
 
     log_info("kpmhook initialized successfully. Resuming game execution.");
 

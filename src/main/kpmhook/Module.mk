@@ -5,6 +5,7 @@ ldflags_kpmhook := \
     -luser32 \
     -lgdi32 \
     -lole32 \
+    -loleaut32 \
     -ld3d9
 
 libs_kpmhook := \
@@ -28,6 +29,7 @@ src_kpmhook := \
     io-hook.c \
     reader-hook.c \
     movie-hook.c \
+    camera-hook.c \
     d3d9-hook.c \
     dllmain.c
 
