@@ -43,6 +43,10 @@
 #define ADDR_STATION_CTX_0           0x00E652E0
 #define ADDR_STATION_CTX_1           0x00E652E4
 #define ADDR_STATION_CTX_2           0x00E652E8
+#define ADDR_GLOBAL_EAMUSE_CONTROL   0x01ACEAB4
+#define ADDR_EAMUSE_GET_STATUS_FUNC  0x005499B0
+#define ADDR_EAMUSE_VFTABLE          0x00C3C3CC
+#define ADDR_PCSUB_CHECK_DONGLES_FUNC 0x005DD310
 
 #define ADDR_NVRAM_SUBBOARD_BRANCH   0x00504695
 #define ADDR_NVRAM_MEMSET_CALL       0x005046A7
@@ -331,6 +335,131 @@ static __declspec(naked) void my_sub_5C93A0(void)
 
 static const char S_KONAMI_PCB_ID[] = "014014000003CCCBC5E6";
 
+/* Standard 40-byte DS2430A Dongle structure (32B Payload + 8B ROM ID) */
+struct ds2430a_dongle {
+    uint8_t rom_id[8];
+    uint8_t payload[32];
+};
+
+/* Default authenticated DS2430A White Network Plug (E-AMUSE3, @@@@@@@@, PCBID: 014014000003CCCBC5E6) */
+static const uint8_t S_DEFAULT_WHITE_ROM_ID[8] = {
+    0x14, 0x00, 0x00, 0x03, 0xCC, 0xCB, 0xC5, 0xE6
+};
+static const uint8_t S_DEFAULT_WHITE_PAYLOAD[32] = {
+    0x5D, 0x7A, 0xD2, 0xCC, 0xAE, 0x64, 0x20, 0x08,
+    0x82, 0x20, 0x08, 0x82, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60
+};
+
+/* Default authenticated DS2430A Black Software Plug (LOUSSTAI, GSKPMJAA) */
+static const uint8_t S_DEFAULT_BLACK_ROM_ID[8] = {
+    0x14, 0x20, 0x03, 0x58, 0x01, 0x00, 0x00, 0x98
+};
+static const uint8_t S_DEFAULT_BLACK_PAYLOAD[32] = {
+    0xC9, 0x5D, 0x85, 0xF0, 0xD5, 0xA4, 0xE7, 0xBC,
+    0xC2, 0xAD, 0x1A, 0x86, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEA
+};
+
+static struct ds2430a_dongle s_net_dongle;
+static struct ds2430a_dongle s_soft_dongle;
+static bool s_dongles_initialized = false;
+
+static void load_ds2430a_dongle(
+    const char *primary_filename,
+    const char *secondary_filename,
+    struct ds2430a_dongle *out_dongle,
+    const uint8_t *default_rom_id,
+    const uint8_t *default_payload)
+{
+    FILE *f = fopen(primary_filename, "rb");
+    if (!f && secondary_filename) {
+        f = fopen(secondary_filename, "rb");
+    }
+
+    if (f) {
+        uint8_t buf[40];
+        size_t n = fread(buf, 1, sizeof(buf), f);
+        fclose(f);
+        if (n == 40) {
+            /* Check layout format:
+             * MAME layout: Payload[0..31] + ROM_ID[32..39] (Family Code 0x14 at buf[32])
+             * Legacy layout: ROM_ID[0..7] + Payload[8..39] (Family Code 0x14 at buf[0])
+             */
+            if (buf[32] == 0x14) {
+                memcpy(out_dongle->payload, &buf[0], 32);
+                memcpy(out_dongle->rom_id, &buf[32], 8);
+                log_info(
+                    "Loaded DS2430A dongle from %s (MAME layout, ROM ID: %02X%02X%02X%02X%02X%02X%02X%02X)",
+                    primary_filename,
+                    out_dongle->rom_id[0], out_dongle->rom_id[1], out_dongle->rom_id[2], out_dongle->rom_id[3],
+                    out_dongle->rom_id[4], out_dongle->rom_id[5], out_dongle->rom_id[6], out_dongle->rom_id[7]);
+                return;
+            } else if (buf[0] == 0x14) {
+                memcpy(out_dongle->rom_id, &buf[0], 8);
+                memcpy(out_dongle->payload, &buf[8], 32);
+                log_info(
+                    "Loaded DS2430A dongle from %s (Legacy layout, ROM ID: %02X%02X%02X%02X%02X%02X%02X%02X)",
+                    primary_filename,
+                    out_dongle->rom_id[0], out_dongle->rom_id[1], out_dongle->rom_id[2], out_dongle->rom_id[3],
+                    out_dongle->rom_id[4], out_dongle->rom_id[5], out_dongle->rom_id[6], out_dongle->rom_id[7]);
+                return;
+            }
+        }
+    }
+
+    /* Fallback to default verified parameters */
+    memcpy(out_dongle->rom_id, default_rom_id, 8);
+    memcpy(out_dongle->payload, default_payload, 32);
+    log_info(
+        "Using built-in authenticated DS2430A dongle for %s (ROM ID: %02X%02X%02X%02X%02X%02X%02X%02X)",
+        primary_filename,
+        out_dongle->rom_id[0], out_dongle->rom_id[1], out_dongle->rom_id[2], out_dongle->rom_id[3],
+        out_dongle->rom_id[4], out_dongle->rom_id[5], out_dongle->rom_id[6], out_dongle->rom_id[7]);
+}
+
+static void init_ds2430a_dongles(void)
+{
+    if (s_dongles_initialized) {
+        return;
+    }
+    s_dongles_initialized = true;
+
+    load_ds2430a_dongle(
+        "dongle_network.bin",
+        "contents/dongle_network.bin",
+        &s_net_dongle,
+        S_DEFAULT_WHITE_ROM_ID,
+        S_DEFAULT_WHITE_PAYLOAD);
+
+    load_ds2430a_dongle(
+        "dongle_software.bin",
+        "contents/dongle_software.bin",
+        &s_soft_dongle,
+        S_DEFAULT_BLACK_ROM_ID,
+        S_DEFAULT_BLACK_PAYLOAD);
+}
+
+/*
+ * sub_5499B0 CEamuseControl::GetStatus(void)
+ * __thiscall calling convention (ECX = this).
+ * Returns `this + 104` (pointer to 176-byte EAMUSE_STATUS struct).
+ * We intercept this to guarantee network_status = 1 (ONLINE) and service_status = 2 (AVAILABLE),
+ * completely banishing LOGO_C and top offline warning banners.
+ */
+static __declspec(naked) char *my_Eamuse_GetStatus(void)
+{
+    __asm {
+        lea eax, [ecx+68h]          ; eax = this + 104
+        mov word ptr [eax+0A8h], 1  ; network_status = 1 (ONLINE)
+        mov word ptr [eax+0AAh], 2  ; service_status = 2 (AVAILABLE)
+        mov dword ptr [eax+0A0h], 0 ; error_code = 0 (NO_ERROR)
+        retn
+    }
+}
+
 /*
  * sub_5CA870 CPcSubWrap::GetNetPlugPcbId(char *buf, unsigned int max_len)
  * __thiscall calling convention (ECX = this, [esp+4] = buf, [esp+8] = max_len).
@@ -359,7 +488,7 @@ _copy_loop:
         inc esi
         inc edi
         jmp _copy_loop
-_null_term:
+        _null_term:
         mov byte ptr [edi], 0
         pop edi
         pop esi
@@ -372,6 +501,8 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
 {
     log_info("Initializing PCSub arcade I/O virtualization...");
     s_cfg = *cfg;
+
+    init_ds2430a_dongles();
 
     /* Hook sub_5C93A0 (Hopper Pay Stop / Command 285) */
     uint8_t jmp_stop[11] = {
@@ -392,6 +523,20 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         "Hooked sub_5CA870 at 0x%08X to return authentic PCB ID (%s)",
         ADDR_PCSUB_GET_NET_PLUG_ID,
         S_KONAMI_PCB_ID);
+
+    /* Hook sub_5499B0 (CEamuseControl::GetStatus) to enforce ONLINE and AVAILABLE status */
+    uint8_t jmp_get_status[5] = { 0xE9, 0x00, 0x00, 0x00, 0x00 };
+    uint32_t rel_status = (uint32_t) my_Eamuse_GetStatus - (ADDR_EAMUSE_GET_STATUS_FUNC + 5);
+    memcpy(&jmp_get_status[1], &rel_status, sizeof(rel_status));
+    patch_memory(ADDR_EAMUSE_GET_STATUS_FUNC, jmp_get_status, sizeof(jmp_get_status));
+
+    /* Also hook CEamuseControl vftable[9] directly for double assurance */
+    uint32_t new_vptr_9 = (uint32_t) my_Eamuse_GetStatus;
+    patch_memory(ADDR_EAMUSE_VFTABLE + 9 * 4, (const uint8_t *) &new_vptr_9, sizeof(new_vptr_9));
+    log_info(
+        "Hooked CEamuseControl::GetStatus at 0x%08X (and vftable[9] 0x%08X) to eliminate LOGO_C banner",
+        ADDR_EAMUSE_GET_STATUS_FUNC,
+        ADDR_EAMUSE_VFTABLE + 9 * 4);
 
     /* Patch 0x0041FDC6 in CBootStatus::CheckEamuse:
      * Originally: cmp eax, edi; jnz loc_41FE61 (0F 85 95 00 00 00)
@@ -885,6 +1030,33 @@ void kpm_io_hook_update(void)
     uint8_t *subboard_base = (p_subboard && *p_subboard) ? (uint8_t *) (*p_subboard) : NULL;
     if (subboard_base) {
         subboard_base[616] = s_cabinet_jumper_byte;
+
+        /* Virtualize PCSub DS2430A authentic dongles */
+        if (subboard_base[101] != 0 || subboard_base[143] != 0) {
+            init_ds2430a_dongles();
+
+            /* Device 0: Black Software Plug */
+            subboard_base[16] = 0; /* dev */
+            subboard_base[17] = 0; /* status = OK */
+            memcpy(&subboard_base[18], s_soft_dongle.rom_id, 8);
+            memcpy(&subboard_base[26], s_soft_dongle.payload, 32);
+
+            /* Device 1: White Network Plug */
+            subboard_base[58] = 1; /* dev */
+            subboard_base[59] = 0; /* status = OK */
+            memcpy(&subboard_base[60], s_net_dongle.rom_id, 8);
+            memcpy(&subboard_base[68], s_net_dongle.payload, 32);
+
+            typedef char (__stdcall *check_dongles_fn_t)(uint8_t *subboard);
+            check_dongles_fn_t p_check_dongles = (check_dongles_fn_t) ADDR_PCSUB_CHECK_DONGLES_FUNC;
+            p_check_dongles(subboard_base);
+
+            log_info(
+                "Injected authentic DS2430A dongles into PCSub: SoftPlug status=%d, NetPlug status=%d, PCBID=%s",
+                subboard_base[101],
+                subboard_base[143],
+                (const char *) (subboard_base + 216));
+        }
     }
 
     /* Inject attract mode setting (USE GAME MODE) and ensure AGING MODE is clear:
@@ -896,6 +1068,8 @@ void kpm_io_hook_update(void)
         uint8_t *ctx0 = (uint8_t *) (*p_ctx0);
         ctx0[27] = (uint8_t) s_cfg.attract_mode;
         ctx0[144] = 0;
+        ctx0[40] = 1; /* Station eamuse enable */
+        ctx0[42] = 1;
     }
     uint32_t *p_ctx1 = (uint32_t *) ADDR_STATION_CTX_1;
     if (p_ctx1 && *p_ctx1) {
@@ -906,6 +1080,16 @@ void kpm_io_hook_update(void)
     if (p_ctx2 && *p_ctx2) {
         uint8_t *ctx2 = (uint8_t *) (*p_ctx2);
         ctx2[144] = 0;
+    }
+
+    /* Keep CEamuseControl online status synchronized */
+    uint32_t *p_eamuse = (uint32_t *) ADDR_GLOBAL_EAMUSE_CONTROL;
+    if (p_eamuse && *p_eamuse) {
+        uint8_t *eam_base = (uint8_t *) (*p_eamuse);
+        eam_base[101] = 1; /* Station eamuse enable */
+        *((uint16_t *) (eam_base + 272)) = 1; /* network_status = 1 (ONLINE) */
+        *((uint16_t *) (eam_base + 274)) = 2; /* service_status = 2 (AVAILABLE) */
+        *((uint32_t *) (eam_base + 264)) = 0; /* error_code = 0 */
     }
 
     /* Ensure subboard ready flag (subwrap + 284) is active so sub_5C9C40 runs all state machines */
