@@ -46,6 +46,8 @@ static bool is_eamuse_host(const char *name)
     if (_stricmp(name, "services.eamuse.konami.fun") == 0) return true;
     if (strstr(name, "eamuse.konami.fun") != NULL) return true;
     if (strstr(name, "konami.fun") != NULL) return true;
+    if (strstr(name, "konami.com") != NULL) return true;
+    if (strstr(name, "nict.jp") != NULL) return true;
     if (_strnicmp(name, "services.", 9) == 0) return true;
     return false;
 }

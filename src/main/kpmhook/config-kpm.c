@@ -53,6 +53,8 @@ void kpm_config_bootstrap(const struct kpmhook_config_gfx *gfx_cfg)
     fputs("# LovePlus MEDAL (KPM) minimal configuration\n", f_out);
     fputs("NO_TOUCHPANEL=1\n", f_out);
     fputs("NO_SUBBOARD=1\n", f_out);
+    fputs("NO_PLUG_N=1\n", f_out);
+    fputs("NO_PLUG_S=1\n", f_out);
     fputs("NO_CARDREADER=0\n", f_out);
     fputs("IGNORE_IRCOM=1\n", f_out);
     fputs("DISABLE_ALL_ERROR=1\n", f_out);

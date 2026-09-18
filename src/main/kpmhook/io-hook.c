@@ -20,6 +20,8 @@
 #define ADDR_CHECK_PCSUB_MODE_JUMP   0x0041ECF7
 #define ADDR_NO_SUBBOARD_CHECK_CALL  0x0041F4DE
 #define ADDR_BOOT_CREDITS_VALUE   0x0041F5E3
+#define ADDR_CHECK_EAMUSE_PLUG_JUMP  0x0041FDC6
+#define ADDR_PCSUB_GET_NET_PLUG_ID   0x005CA870
 #define ADDR_HOPPER_PAY_STOP_FUNC    0x005C93A0
 #define ADDR_SECRET_MENU_COUNT_DEC   0x0042C199
 #define ADDR_SECRET_MENU_DRAW_FILTER 0x0042C550
@@ -327,6 +329,45 @@ static __declspec(naked) void my_sub_5C93A0(void)
     }
 }
 
+static const char S_KONAMI_PCB_ID[] = "014014000003CCCBC5E6";
+
+/*
+ * sub_5CA870 CPcSubWrap::GetNetPlugPcbId(char *buf, unsigned int max_len)
+ * __thiscall calling convention (ECX = this, [esp+4] = buf, [esp+8] = max_len).
+ * Returns `buf` on success, pops 8 bytes of stack arguments upon return.
+ */
+static __declspec(naked) int my_sub_5CA870(void)
+{
+    __asm {
+        mov eax, [esp+4]       ; char *buf
+        test eax, eax
+        jz _ret
+        mov ecx, [esp+8]       ; unsigned int max_len
+        test ecx, ecx
+        jz _ret
+        push esi
+        push edi
+        mov edi, eax
+        mov esi, offset S_KONAMI_PCB_ID
+_copy_loop:
+        dec ecx
+        jz _null_term
+        mov dl, [esi]
+        test dl, dl
+        jz _null_term
+        mov [edi], dl
+        inc esi
+        inc edi
+        jmp _copy_loop
+_null_term:
+        mov byte ptr [edi], 0
+        pop edi
+        pop esi
+_ret:
+        ret 8
+    }
+}
+
 void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
 {
     log_info("Initializing PCSub arcade I/O virtualization...");
@@ -341,6 +382,31 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
     memcpy(&jmp_stop[1], &rel_stop, sizeof(rel_stop));
     patch_memory(ADDR_HOPPER_PAY_STOP_FUNC, jmp_stop, sizeof(jmp_stop));
     log_info("Hooked sub_5C93A0 at 0x%08X to intercept hopper pay stop", ADDR_HOPPER_PAY_STOP_FUNC);
+
+    /* Hook sub_5CA870 (CPcSubWrap::GetNetPlugPcbId) to supply standard Konami PCB ID */
+    uint8_t jmp_sub_5CA870[5] = { 0xE9, 0x00, 0x00, 0x00, 0x00 };
+    uint32_t rel_plug = (uint32_t) my_sub_5CA870 - (ADDR_PCSUB_GET_NET_PLUG_ID + 5);
+    memcpy(&jmp_sub_5CA870[1], &rel_plug, sizeof(rel_plug));
+    patch_memory(ADDR_PCSUB_GET_NET_PLUG_ID, jmp_sub_5CA870, sizeof(jmp_sub_5CA870));
+    log_info(
+        "Hooked sub_5CA870 at 0x%08X to return authentic PCB ID (%s)",
+        ADDR_PCSUB_GET_NET_PLUG_ID,
+        S_KONAMI_PCB_ID);
+
+    /* Patch 0x0041FDC6 in CBootStatus::CheckEamuse:
+     * Originally: cmp eax, edi; jnz loc_41FE61 (0F 85 95 00 00 00)
+     * Replace with: jmp loc_41FE61; nop (E9 96 00 00 00 90)
+     * Ensures CheckEamuse unconditionally advances through dummy board / eamuse init path
+     * without blocking even if physical DS2432 hardware network plug is absent.
+     */
+    static const uint8_t jmp_eamuse_bypass[6] = {
+        0xE9, 0x96, 0x00, 0x00, 0x00, /* jmp loc_41FE61 */
+        0x90                          /* nop */
+    };
+    patch_memory(ADDR_CHECK_EAMUSE_PLUG_JUMP, jmp_eamuse_bypass, sizeof(jmp_eamuse_bypass));
+    log_info(
+        "Patched CheckEamuse security plug jump at 0x%08X to unconditional bypass",
+        ADDR_CHECK_EAMUSE_PLUG_JUMP);
 
     /* Note: kpm_io_init is deferred to kpm_io_hook_update() on the first frame
      * to avoid Windows Loader Lock deadlock during DllMain process attach. */
