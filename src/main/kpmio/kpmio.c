@@ -140,13 +140,18 @@ bool kpm_io_read_inputs(void)
         DWORD now_hopper = GetTickCount();
         DWORD elapsed = now_hopper - s_last_hopper_tick;
 
-        /* Optical sensor is active (coin passing photodiode) during 0..30ms of the 80ms period */
-        s_hopper_sensor = (elapsed < 30);
+        /* Optical sensor is active (coin passing photodiode) during 0..25ms of the 60ms period */
+        s_hopper_sensor = (elapsed < 25);
 
-        if (elapsed >= 80) { /* 1 medal every 80ms */
+        if (elapsed >= 60) { /* 1 medal every 60ms (~16.7 medals/s) */
             s_last_hopper_tick = now_hopper;
-            s_payout_paid++;
-            if (s_payout_paid >= s_payout_demanded) {
+            if (s_payout_paid < s_payout_demanded) {
+                s_payout_paid++;
+            } else {
+                /* All demanded medals dispensed.
+                 * Stay in state 1 with paid == demanded for one 60ms period so the game's
+                 * case 1 state machine reliably processes and deducts the final coin from credits,
+                 * then transition to state 2 (Complete). */
                 s_hopper_state = 2; /* Finished */
                 s_hopper_sensor = false;
                 if (s_log_info) {

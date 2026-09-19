@@ -9,3 +9,6 @@ void kpm_touch_hook_init(void);
  * type: 1 = Touch Down, 2 = Touch Move / Drag, 4 = Touch Up / Release.
  */
 void kpm_touch_post_event(int screen, int client_x, int client_y, int client_w, int client_h, int type);
+
+/* Check if user touch activity has occurred since last check and reset the flag */
+bool kpm_touch_get_and_clear_activity(void);

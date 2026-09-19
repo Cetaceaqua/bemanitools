@@ -1,14 +1,18 @@
 #define LOG_MODULE "kpm-io-hook"
 
 #include <windows.h>
+#include <mmsystem.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <math.h>
 
+#pragma comment(lib, "winmm.lib")
+
 #include "bemanitools/kpmio.h"
 #include "kpmhook/config-io.h"
 #include "kpmhook/io-hook.h"
+#include "kpmhook/touch-hook.h"
 #include "util/log.h"
 #include "util/thread.h"
 
@@ -27,13 +31,17 @@
 #define ADDR_SECRET_MENU_DRAW_FILTER 0x0042C550
 #define ADDR_ATTRACT_TIMEOUT_1       0x00473670
 #define ADDR_ATTRACT_TIMEOUT_2       0x00473DA3
+#define ADDR_ATTRACT_FUNDS_CHECK_1   0x00473685
+#define ADDR_ATTRACT_FUNDS_CHECK_2   0x00473DB8
 #define ADDR_ATTRACT_SKIP_JUMP       0x00473D90
 #define ADDR_ATTRACT_CREDIT_BYPASS   0x00473DA9
 #define ADDR_SLOT_IDLE_TIMER_RESET   0x00471362
 #define ADDR_STEP39_ABORT_CHECK      0x0047BCE0
 #define ADDR_BETSLOT_SKIP_JUMP       0x004C43FB
 #define ADDR_BETSLOT_TIMEOUT         0x004C4412
+#define ADDR_BETSLOT_FUNDS_CHECK     0x004C442B
 #define ADDR_BETSLOT_CREDIT_BYPASS   0x004C4440
+#define ADDR_COIN_DWELL_TIMEOUT_JUMP 0x00402079
 #define ADDR_BOOT_STATUS_INIT_MODE   0x00425A60
 #define ADDR_STARTUP_MODE_SWITCH_JUMP 0x004263C1
 #define ADDR_HARDWARE_TEST_MODE_0    0x004F2DC8
@@ -53,6 +61,19 @@
 #define NVRAM_SRAM_SIZE              0x00080000 /* 512 KB battery-backed SRAM */
 #define ADDR_FUNC_SUB_4532A0         0x004532A0
 #define ADDR_FUNC_SUB_453280         0x00453280
+
+#define ADDR_MAINAPP_UPDATE_GATE_1        0x00403563
+#define ADDR_MAINAPP_UPDATE_GATE_2        0x0040356C
+#define ADDR_TRANSFER_CREDIT_LIMIT_JUMP   0x00401C7B
+#define ADDR_COLLECT_STATE_GATE_JUMP      0x00402233
+#define ADDR_COLLECT_DEBOUNCE_CMP         0x004022FB
+#define ADDR_COLLECT_NO_HOPPER_JUMP       0x004022BC
+#define ADDR_COLLECT_OVERFLOW_JUMP        0x00402321
+#define ADDR_COLLECT_COMPLETE_ERR_JUMP    0x004029C8
+#define ADDR_PAYOUT_EMERGENCY_STOP_1      0x004024EB
+#define ADDR_PAYOUT_EMERGENCY_STOP_2      0x00402535
+#define ADDR_PAYOUT_CASE2_STEP_JUMP       0x00402802
+#define ADDR_KPM_ERROR_DISPATCHER         0x004232D0
 
 #define TOTAL_LEDS                110
 #define NUM_STRIPS                11
@@ -227,6 +248,72 @@ static int __fastcall my_check_no_subboard(void *this_ptr, void *edx_unused, con
     return 1;
 }
 
+#define ADDR_CHUMANINPUTDEVICE_VTABLE_SLOT5 0x00BBC180
+
+static char (__fastcall *real_GetButtonState)(void *this_ptr, void *edx_unused, int channel) = NULL;
+
+static DWORD s_transfer_press_start_tick = 0;
+
+/*
+ * CHumanInputDevice::vftable[5] (GetButtonState, 0x00411F00):
+ * In MSVC x86, __thiscall passes `this` in ECX, `channel` at [esp+4].
+ * __fastcall with an unused second parameter matches this calling convention exactly.
+ */
+static char __fastcall my_GetButtonState(void *this_ptr, void *edx_unused, int channel)
+{
+    if (channel == 9) {
+        uint16_t btns = kpm_io_get_buttons();
+        bool transfer_active = (btns & KPM_IO_BTN_TRANSFER) != 0;
+        if (!transfer_active && s_cfg.coin_auto_transfer) {
+            uint32_t *p_data = (uint32_t *) 0x00E652D4;
+            if (p_data && *p_data) {
+                uint32_t coin_meter = *((uint32_t *) (*p_data + 9608));
+                if (coin_meter > 0) {
+                    transfer_active = true;
+                }
+            }
+        }
+
+        if (transfer_active) {
+            DWORD now = GetTickCount();
+            if (s_transfer_press_start_tick == 0) {
+                s_transfer_press_start_tick = now;
+                return 1;
+            }
+            DWORD elapsed = now - s_transfer_press_start_tick;
+            /* Initial hold delay: 300ms before auto-repeat kicks in */
+            if (elapsed < 300) {
+                return 1;
+            }
+            /* Auto-repeat phase: 120ms period (~8 coins/sec)
+             * [0..39ms]: 0 (Release pulse, ~2.4 frames, clears latch [lpCriticalSectionr+276] at 0x401df8)
+             * [40..119ms]: 1 (Press pulse, ~4.8 frames >= 2 debounce, triggers sub_401930 coin transfer)
+             */
+            DWORD cycle = (elapsed - 300) % 120;
+            return (cycle >= 40) ? 1 : 0;
+        } else {
+            s_transfer_press_start_tick = 0;
+            return 0;
+        }
+    } else if (channel == 1) {
+        uint16_t btns = kpm_io_get_buttons();
+        if (btns & KPM_IO_BTN_COLLECT_PAYOUT) {
+            return 1;
+        }
+        return 0;
+    } else if (channel == 6) {
+        uint16_t btns = kpm_io_get_buttons();
+        if (btns & KPM_IO_BTN_RESET_KEY) {
+            return 1;
+        }
+        return 0;
+    }
+    if (real_GetButtonState) {
+        return real_GetButtonState(this_ptr, edx_unused, channel);
+    }
+    return 0;
+}
+
 static void init_raw_serial(const struct kpmhook_config_io *cfg)
 {
     if (!cfg->lights_raw_serial) {
@@ -275,47 +362,117 @@ static void init_raw_serial(const struct kpmhook_config_io *cfg)
         cfg->lights_raw_baud);
 }
 
-static uint32_t *get_slot_idle_timer(void)
+static void reset_station_idle_timers(uint8_t *st, DWORD now)
+{
+    if (!st) return;
+    /* Station::GetGameStatus() is stored directly at st + 0x58 (sub_42A540) */
+    uint8_t *status = *((uint8_t **) (st + 0x58));
+    if (!status) return;
+
+    /* 1. Mode 5 (CGameNormalMode) idle timer at status + 0x247C + 0x70A78.
+     * This watchdog ticks and triggers Step 39 exit to title if idle. */
+    uint32_t *p_slot_timer = (uint32_t *) (status + 0x247C + 0x70A78);
+    *p_slot_timer = now;
+
+    /* 2. Mode 11 (CGameBetSlot) idle timer */
+    uint8_t *betslot = status + 0x76F48;
+    uint32_t *p_slotmain = (uint32_t *) (betslot + 116);
+    if (p_slotmain && *p_slotmain) {
+        uint32_t *p_bet_timer = (uint32_t *) (*p_slotmain + 360);
+        *p_bet_timer = now;
+    }
+
+    /* 3. Mode 0 (CGameTitle) idle timer at status + 0xD8 + 0x50 (thisa[20]) */
+    uint32_t *p_title_timer = (uint32_t *) (status + 0xD8 + 0x50);
+    *p_title_timer = now;
+}
+
+static void reset_game_idle_timers(void)
 {
     uint32_t *p_app = (uint32_t *) 0x01ACE78C;
-    if (!p_app || !*p_app) return NULL;
+    if (!p_app || !*p_app) return;
     uint8_t *app = (uint8_t *) (*p_app);
+    DWORD now = timeGetTime();
+
+    /* Station 0 at app + 0x8C */
     uint32_t *p_st0 = (uint32_t *) (app + 0x8C);
-    if (!p_st0 || !*p_st0) return NULL;
-    uint8_t *st0 = (uint8_t *) (*p_st0);
-    uint32_t *vtable = (uint32_t *) (*((uint32_t *) st0));
-    if (!vtable) return NULL;
-    void *fn = (void *) vtable[0x64 / 4];
-    uint8_t *status = NULL;
+    if (p_st0 && *p_st0) {
+        reset_station_idle_timers((uint8_t *) (*p_st0), now);
+    }
+
+    /* Station 1 at app + 0x90 */
+    uint32_t *p_st1 = (uint32_t *) (app + 0x90);
+    if (p_st1 && *p_st1) {
+        reset_station_idle_timers((uint8_t *) (*p_st1), now);
+    }
+}
+
+/*
+ * Coin asset protection hooks:
+ * Original logic in Mode 5 (0x00473685, 0x00473DB8) and Mode 11 (0x004C442B)
+ * only compares Credit ([eax+0x2578]) against 0 when idle timer reaches timeout threshold.
+ * If Credit == 0 (even if Coin pool [eax+0x2588] has un-transferred coins), it triggers Step 39
+ * and forces an abrupt transition back to Title/Attract loop.
+ * These hooks evaluate (Credit | Coin) so any un-transferred coins protect against timeout exit.
+ */
+static const uintptr_t CONT_CHECK_FUNDS_1 = 0x00473690;
+static __declspec(naked) void hook_check_funds_1(void)
+{
     __asm {
-        mov ecx, st0
-        call fn
-        mov status, eax
+        mov eax, dword ptr ds:[0x00E652D4]
+        mov edi, [eax+0x2578]   ; Credit
+        or edi, [eax+0x2588]    ; Coin
+        jmp dword ptr [CONT_CHECK_FUNDS_1]
     }
-    if (!status) return NULL;
-    uint32_t current_mode = *((uint32_t *) (status + 0x77418));
-    if (current_mode == 5) {
-        return (uint32_t *) (status + 0x247C + 0x70A78);
+}
+
+static const uintptr_t CONT_CHECK_FUNDS_2 = 0x00473DC4;
+static __declspec(naked) void hook_check_funds_2(void)
+{
+    __asm {
+        mov ecx, dword ptr ds:[0x00E652D4]
+        mov edx, [ecx+0x2578]   ; Credit
+        or edx, [ecx+0x2588]    ; Coin
+        jmp dword ptr [CONT_CHECK_FUNDS_2]
     }
-    if (current_mode == 11) {
-        /* Mode 11 CGameBetSlot is at status + 0x76F48.
-         * Offset +116 (0x74) is m_pSlotMain (CGameSlotMainBet).
-         * Inside CGameSlotMainBet, offset +360 (0x168) is the idle timer. */
-        uint8_t *betslot = status + 0x76F48;
-        uint32_t *p_slotmain = (uint32_t *) (betslot + 116);
-        if (p_slotmain && *p_slotmain) {
-            return (uint32_t *) (*p_slotmain + 360);
-        }
+}
+
+static const uintptr_t CONT_CHECK_FUNDS_3 = 0x004C4437;
+static __declspec(naked) void hook_check_funds_3(void)
+{
+    __asm {
+        mov edx, dword ptr ds:[0x00E652D4]
+        mov edi, [edx+0x2578]   ; Credit
+        or edi, [edx+0x2588]    ; Coin
+        jmp dword ptr [CONT_CHECK_FUNDS_3]
     }
-    return NULL;
 }
 
 static const uintptr_t SUB_5C93A0_CONT = 0x005C93AB;
 
 static void my_sub_5C93A0_impl(void)
 {
-    log_info("sub_5C93A0 intercepted: Emergency stopping virtual hopper payout");
-    kpm_io_payout_stop();
+    log_info("sub_5C93A0 intercepted (pay stop ignored to protect active virtual hopper payout)");
+}
+
+static void my_sub_4232D0_impl(int a1, unsigned int code, int a3, int a4)
+{
+    log_warning(
+        "KPM Fatal Error suppressed by io-hook: code=0x%04X, a1=%d, a3=%d, a4=%d",
+        code, a1, a3, a4);
+}
+
+static __declspec(naked) void my_sub_4232D0(void)
+{
+    __asm {
+        push [esp+10h]  ; a4
+        push [esp+10h]  ; a3
+        push [esp+10h]  ; code
+        push [esp+10h]  ; a1
+        call my_sub_4232D0_impl
+        add esp, 16
+        ret
+    }
 }
 
 static __declspec(naked) void my_sub_5C93A0(void)
@@ -333,7 +490,7 @@ static __declspec(naked) void my_sub_5C93A0(void)
     }
 }
 
-static const char S_KONAMI_PCB_ID[] = "014014000003CCCBC5E6";
+static const char S_KONAMI_PCB_ID[] = "014014000003CCCBC50D";
 
 /* Standard 40-byte DS2430A Dongle structure (32B Payload + 8B ROM ID) */
 struct ds2430a_dongle {
@@ -341,15 +498,15 @@ struct ds2430a_dongle {
     uint8_t payload[32];
 };
 
-/* Default authenticated DS2430A White Network Plug (E-AMUSE3, @@@@@@@@, PCBID: 014014000003CCCBC5E6) */
+/* Default authenticated DS2430A White Network Plug (E-AMUSE3, @@@@@@@@, PCBID: 014014000003CCCBC50D) */
 static const uint8_t S_DEFAULT_WHITE_ROM_ID[8] = {
-    0x14, 0x00, 0x00, 0x03, 0xCC, 0xCB, 0xC5, 0xE6
+    0x14, 0x00, 0x00, 0x03, 0xCC, 0xCB, 0xC5, 0x0D
 };
 static const uint8_t S_DEFAULT_WHITE_PAYLOAD[32] = {
-    0x5D, 0x7A, 0xD2, 0xCC, 0xAE, 0x64, 0x20, 0x08,
+    0x6A, 0xB1, 0x25, 0xA2, 0xD1, 0xB1, 0x20, 0x08,
     0x82, 0x20, 0x08, 0x82, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56
 };
 
 /* Default authenticated DS2430A Black Software Plug (LOUSSTAI, GSKPMJAA) */
@@ -442,23 +599,6 @@ static void init_ds2430a_dongles(void)
         S_DEFAULT_BLACK_PAYLOAD);
 }
 
-/*
- * sub_5499B0 CEamuseControl::GetStatus(void)
- * __thiscall calling convention (ECX = this).
- * Returns `this + 104` (pointer to 176-byte EAMUSE_STATUS struct).
- * We intercept this to guarantee network_status = 1 (ONLINE) and service_status = 2 (AVAILABLE),
- * completely banishing LOGO_C and top offline warning banners.
- */
-static __declspec(naked) char *my_Eamuse_GetStatus(void)
-{
-    __asm {
-        lea eax, [ecx+68h]          ; eax = this + 104
-        mov word ptr [eax+0A8h], 1  ; network_status = 1 (ONLINE)
-        mov word ptr [eax+0AAh], 2  ; service_status = 2 (AVAILABLE)
-        mov dword ptr [eax+0A0h], 0 ; error_code = 0 (NO_ERROR)
-        retn
-    }
-}
 
 /*
  * sub_5CA870 CPcSubWrap::GetNetPlugPcbId(char *buf, unsigned int max_len)
@@ -523,20 +663,6 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         "Hooked sub_5CA870 at 0x%08X to return authentic PCB ID (%s)",
         ADDR_PCSUB_GET_NET_PLUG_ID,
         S_KONAMI_PCB_ID);
-
-    /* Hook sub_5499B0 (CEamuseControl::GetStatus) to enforce ONLINE and AVAILABLE status */
-    uint8_t jmp_get_status[5] = { 0xE9, 0x00, 0x00, 0x00, 0x00 };
-    uint32_t rel_status = (uint32_t) my_Eamuse_GetStatus - (ADDR_EAMUSE_GET_STATUS_FUNC + 5);
-    memcpy(&jmp_get_status[1], &rel_status, sizeof(rel_status));
-    patch_memory(ADDR_EAMUSE_GET_STATUS_FUNC, jmp_get_status, sizeof(jmp_get_status));
-
-    /* Also hook CEamuseControl vftable[9] directly for double assurance */
-    uint32_t new_vptr_9 = (uint32_t) my_Eamuse_GetStatus;
-    patch_memory(ADDR_EAMUSE_VFTABLE + 9 * 4, (const uint8_t *) &new_vptr_9, sizeof(new_vptr_9));
-    log_info(
-        "Hooked CEamuseControl::GetStatus at 0x%08X (and vftable[9] 0x%08X) to eliminate LOGO_C banner",
-        ADDR_EAMUSE_GET_STATUS_FUNC,
-        ADDR_EAMUSE_VFTABLE + 9 * 4);
 
     /* Patch 0x0041FDC6 in CBootStatus::CheckEamuse:
      * Originally: cmp eax, edi; jnz loc_41FE61 (0F 85 95 00 00 00)
@@ -604,6 +730,17 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         "Hooked NO_SUBBOARD initialization check at 0x%08X to protect SRAM persistence",
         ADDR_NO_SUBBOARD_CHECK_CALL);
 
+    /* Hook CHumanInputDevice::vftable[5] (GetButtonState at 0x00BBC180) to provide direct,
+     * debounced Transfer (Channel 9) button input straight to game logic */
+    uintptr_t vtable_slot5 = ADDR_CHUMANINPUTDEVICE_VTABLE_SLOT5;
+    real_GetButtonState = (char (__fastcall *)(void *, void *, int)) (*((uint32_t *) vtable_slot5));
+    void *hook_get_btn = (void *) my_GetButtonState;
+    patch_memory(vtable_slot5, (const uint8_t *) &hook_get_btn, sizeof(hook_get_btn));
+    log_info(
+        "Hooked CHumanInputDevice::GetButtonState at vtable 0x%08X (original: 0x%08X)",
+        vtable_slot5,
+        (uint32_t) real_GetButtonState);
+
     if (cfg->show_secret_menu) {
         /* In CTestModeMenuCustom::Init (0x0042C180):
          * 0x0042C199: add dword ptr [esi+94h], 0FFFFFFFFh (7 bytes: 83 86 94 00 00 00 FF)
@@ -659,58 +796,148 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
             "Patched per-frame slot idle timer overwrite at 0x%08X to NOPs",
             ADDR_SLOT_IDLE_TIMER_RESET);
 
-        /* Prevent false-positive flags and credit balance from blocking idle attract timeout:
-         * 1. sub_4532A0 and sub_453280 are patched to return 0 (xor eax, eax; ret).
-         * 2. NOP out the jnz loc_473E16 at 0x00473D90 (6 bytes: 0F 85 80 00 00 00) so
-         *    virtual e-Pass session flags (esi != 0) do not skip the idle timer evaluation.
-         * 3. At 0x00473DA9, patch with jmp short loc_473DEC (EB 41) so when the idle timer expires,
-         *    it bypasses the credit check at 0x00473DCE (which resets the timer if credits > 0)
-         *    and jumps directly to loc_473DEC to transition to Step 39 (sub_47BAB0).
-         * 4. Hook Slot Mode vtable update (0x00BD5650) to track CGameSlotMode instance and reset
-         *    idle timer [ebx+70A78h] whenever player operates buttons, coins, or medals.
-         * 5. Patch 0x0047BCE0 in sub_47BAB0 with jmp short loc_47BD4C (EB 6A) so card status
-         *    checks do not falsely abort Step 39 during the 1.5-second fadeout before switching to Mode 0.
-         */
-        static const uint8_t ret_zero[3] = { 0x31, 0xC0, 0xC3 };
-        patch_memory(ADDR_FUNC_SUB_4532A0, ret_zero, sizeof(ret_zero));
-        patch_memory(ADDR_FUNC_SUB_453280, ret_zero, sizeof(ret_zero));
-
-        static const uint8_t nops6[6] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
-        patch_memory(ADDR_ATTRACT_SKIP_JUMP, nops6, sizeof(nops6));
-
-        static const uint8_t jmp_to_step39[2] = { 0xEB, 0x41 };
-        patch_memory(ADDR_ATTRACT_CREDIT_BYPASS, jmp_to_step39, sizeof(jmp_to_step39));
-
-        static const uint8_t jmp_step39_safe[2] = { 0xEB, 0x6A };
-        patch_memory(ADDR_STEP39_ABORT_CHECK, jmp_step39_safe, sizeof(jmp_step39_safe));
-
-        log_info(
-            "Unblocked idle attract timer (0x%08X), credit bypass (0x%08X), and Step 39 fadeout protector (0x%08X)",
-            ADDR_ATTRACT_SKIP_JUMP,
-            ADDR_ATTRACT_CREDIT_BYPASS,
-            ADDR_STEP39_ABORT_CHECK);
-
-        /* Also patch Mode 11 (CGameSlotMainBet) idle timeout:
-         * 1. 0x004C4412: Patch 120s timeout threshold (1D4C0h) to configured timeout_ms.
-         * 2. 0x004C43FB: Replace `test esi, esi; jz short loc_4C4403` with `jmp short loc_4C4403` (EB 06 90 90)
-         *    so session flags (esi != 0) do not skip the BetSlot idle timer evaluation.
-         * 3. 0x004C4440: NOP out `jnz short loc_4C4449` (75 07 -> 90 90) so credit balance does not abort timeout.
-         */
+        /* Mode 11 (CGameSlotMainBet) idle timeout threshold */
         patch_memory(ADDR_BETSLOT_TIMEOUT, (const uint8_t *) &timeout_ms, sizeof(timeout_ms));
-
-        static const uint8_t jmp_betslot_skip[4] = { 0xEB, 0x06, 0x90, 0x90 };
-        patch_memory(ADDR_BETSLOT_SKIP_JUMP, jmp_betslot_skip, sizeof(jmp_betslot_skip));
-
-        static const uint8_t nops2[2] = { 0x90, 0x90 };
-        patch_memory(ADDR_BETSLOT_CREDIT_BYPASS, nops2, sizeof(nops2));
-
         log_info(
-            "Patched Mode 11 (BetSlot) idle timeout (%u ms at 0x%08X), skip bypass (0x%08X), credit bypass (0x%08X)",
+            "Configured Mode 11 (BetSlot) idle timeout threshold (%u ms at 0x%08X), authentic credit protection preserved",
             timeout_ms,
-            ADDR_BETSLOT_TIMEOUT,
-            ADDR_BETSLOT_SKIP_JUMP,
-            ADDR_BETSLOT_CREDIT_BYPASS);
+            ADDR_BETSLOT_TIMEOUT);
     }
+
+    /* Install coin asset protection hooks for Mode 5 (0x00473685, 0x00473DB8) and Mode 11 (0x004C442B):
+     * Original logic only checks Credit [eax+0x2578] and forces Step 39 exit to Title if Credit == 0.
+     * By OR-ing with Coin pool [eax+0x2588], any un-transferred coins protect against timeout exit. */
+    uint8_t jmp_funds_1[11] = {
+        0xE9, 0x00, 0x00, 0x00, 0x00,
+        0x90, 0x90, 0x90, 0x90, 0x90, 0x90
+    };
+    uint32_t rel_f1 = (uint32_t) hook_check_funds_1 - (ADDR_ATTRACT_FUNDS_CHECK_1 + 5);
+    memcpy(&jmp_funds_1[1], &rel_f1, sizeof(rel_f1));
+    patch_memory(ADDR_ATTRACT_FUNDS_CHECK_1, jmp_funds_1, sizeof(jmp_funds_1));
+
+    uint8_t jmp_funds_2[12] = {
+        0xE9, 0x00, 0x00, 0x00, 0x00,
+        0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
+    };
+    uint32_t rel_f2 = (uint32_t) hook_check_funds_2 - (ADDR_ATTRACT_FUNDS_CHECK_2 + 5);
+    memcpy(&jmp_funds_2[1], &rel_f2, sizeof(rel_f2));
+    patch_memory(ADDR_ATTRACT_FUNDS_CHECK_2, jmp_funds_2, sizeof(jmp_funds_2));
+
+    uint8_t jmp_funds_3[12] = {
+        0xE9, 0x00, 0x00, 0x00, 0x00,
+        0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
+    };
+    uint32_t rel_f3 = (uint32_t) hook_check_funds_3 - (ADDR_BETSLOT_FUNDS_CHECK + 5);
+    memcpy(&jmp_funds_3[1], &rel_f3, sizeof(rel_f3));
+    patch_memory(ADDR_BETSLOT_FUNDS_CHECK, jmp_funds_3, sizeof(jmp_funds_3));
+
+    log_info(
+        "Installed coin asset protection hooks at 0x%08X, 0x%08X, and 0x%08X",
+        ADDR_ATTRACT_FUNDS_CHECK_1,
+        ADDR_ATTRACT_FUNDS_CHECK_2,
+        ADDR_BETSLOT_FUNDS_CHECK);
+
+    /* Patch 0x00402079: In sub_401930, disable 30-second un-transferred coin auto-payout.
+     * Originally: 0F 86 2B 01 00 00 (jbe loc_4021AA)
+     * Replace with: E9 2C 01 00 00 90 (jmp loc_4021AA; nop)
+     * Ensures inserted coins remain safely in the machine without being prematurely ejected.
+     */
+    static const uint8_t jmp_bypass_coin_dwell[6] = {
+        0xE9, 0x2C, 0x01, 0x00, 0x00, /* jmp loc_4021AA */
+        0x90                          /* nop */
+    };
+    patch_memory(ADDR_COIN_DWELL_TIMEOUT_JUMP, jmp_bypass_coin_dwell, sizeof(jmp_bypass_coin_dwell));
+    log_info(
+        "Patched 30s coin dwell auto-payout jump at 0x%08X to unconditional bypass",
+        ADDR_COIN_DWELL_TIMEOUT_JUMP);
+
+    /* Patch 0x00403563 & 0x0040356C: In sub_403550, un-gate CMainApplication state checks.
+     * Originally: 74 2F (jz 0x403594) and 74 26 (jz 0x403594).
+     * Replace with 90 90 (nop nop).
+     * Guarantees sub_401930 and accounting loops always process transfers & payouts!
+     */
+    static const uint8_t nops2[2] = { 0x90, 0x90 };
+    patch_memory(ADDR_MAINAPP_UPDATE_GATE_1, nops2, sizeof(nops2));
+    patch_memory(ADDR_MAINAPP_UPDATE_GATE_2, nops2, sizeof(nops2));
+
+    /* Patch 0x00401C7B: In sub_401930, remove credit limit conditional jump on transfer.
+     * Originally: 0F 8C 64 01 00 00 (jl loc_401DE5, 6 bytes).
+     * Replace with 6x 0x90 (nop).
+     * Ensures player can always transfer coins to credits without being blocked by limits.
+     */
+    patch_memory(ADDR_TRANSFER_CREDIT_LIMIT_JUMP, nops6, sizeof(nops6));
+
+    /* Patch 0x00402233: In sub_401930, remove payout allow gate (lpCriticalSectionr+266).
+     * Originally: 0F 84 6E 01 00 00 (jz loc_4023A7, 6 bytes).
+     * Replace with 6x 0x90 (nop).
+     * Guarantees Collect / Payout button immediately triggers payout whenever player has credits.
+     */
+    patch_memory(ADDR_COLLECT_STATE_GATE_JUMP, nops6, sizeof(nops6));
+
+    /* Patch 0x004022FB: In sub_401930, eliminate debounce check and jump (cmp eax, 5; jb loc_4023D7).
+     * Originally: 83 F8 05 0F 82 D3 00 00 00 (9 bytes).
+     * Replace with: 9x 0x90 (nop).
+     * Makes the Collect / Payout button trigger IMMEDIATELY on the very first frame!
+     */
+    static const uint8_t nops9[9] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
+    patch_memory(ADDR_COLLECT_DEBOUNCE_CMP, nops9, sizeof(nops9));
+
+    /* Patch 0x004022BC: In sub_401930, bypass sub_4018A0 hopper check and Error 0xE800.
+     * Originally: 75 37 (jnz short loc_4022F5).
+     * When sub_4018A0 returns 0 (hopper disabled), it falls through to 0x004022E1 which calls
+     * sub_4232D0(0, 0xE800) and sets g_CMainApplication_0+248 = 2 (error state, freezing all buttons).
+     * Replacing with EB 37 (jmp short loc_4022F5) unconditionally jumps to loc_4022F5,
+     * ensuring Collect / Payout proceeds directly without error 0xE800.
+     */
+    static const uint8_t jmp_bypass_hopper_check[2] = { 0xEB, 0x37 };
+    patch_memory(ADDR_COLLECT_NO_HOPPER_JUMP, jmp_bypass_hopper_check, sizeof(jmp_bypass_hopper_check));
+
+    /* Patch 0x00402321: In sub_401930, bypass hopper overflow check jump to Error 0xE800.
+     * Originally: 74 15 (jz short loc_402338).
+     * Replace with: EB 15 (jmp short loc_402338).
+     * Prevents any overflow error branch from calling sub_4232D0(0, 0xE800).
+     */
+    static const uint8_t jmp_bypass_overflow_check[2] = { 0xEB, 0x15 };
+    patch_memory(ADDR_COLLECT_OVERFLOW_JUMP, jmp_bypass_overflow_check, sizeof(jmp_bypass_overflow_check));
+
+    /* Patch 0x004029C8: In sub_401930, bypass partial payout completion check jump to Error 0xE800.
+     * Originally: 0F 84 35 02 00 00 (jz loc_402C03).
+     * Replace with: E9 36 02 00 00 90 (jmp loc_402C03; nop).
+     * Unconditionally transitions to Step 200 clean exit without calling sub_4232D0(0, 0xE800).
+     */
+    static const uint8_t jmp_bypass_complete_err[6] = {
+        0xE9, 0x36, 0x02, 0x00, 0x00, /* jmp loc_402C03 */
+        0x90                          /* nop */
+    };
+    patch_memory(ADDR_COLLECT_COMPLETE_ERR_JUMP, jmp_bypass_complete_err, sizeof(jmp_bypass_complete_err));
+
+    /* Patch 0x004024EB & 0x00402535: In sub_401930, NOP out emergency payout stop calls (call sub_5C93A0).
+     * Prevents false pay-stop triggers while player is holding or pressing the Collect button.
+     */
+    static const uint8_t nops5[5] = { 0x90, 0x90, 0x90, 0x90, 0x90 };
+    patch_memory(ADDR_PAYOUT_EMERGENCY_STOP_1, nops5, sizeof(nops5));
+    patch_memory(ADDR_PAYOUT_EMERGENCY_STOP_2, nops5, sizeof(nops5));
+
+    /* Patch 0x00402802: In sub_401930 case 2, remove step check jump (jnz loc_40290E) so that
+     * any remaining unpaid delta is correctly deducted from player Credits (g_pMedalAccounting + 9592)
+     * instead of being misrouted to coin temp meter + 9612.
+     * Originally: 0F 85 06 01 00 00 (jnz loc_40290E, 6 bytes).
+     * Replace with: 6x 0x90 (nop).
+     */
+    patch_memory(ADDR_PAYOUT_CASE2_STEP_JUMP, nops6, sizeof(nops6));
+
+    /* Hook 0x004232D0: Central KPM Error Dispatcher (sub_4232D0).
+     * Suppresses any attempt to put machine into Error State (g_CMainApplication_0+248 = 2 or 4),
+     * completely eliminating button lockups and error freeze screens.
+     */
+    uint8_t jmp_err[6] = { 0xE9, 0x00, 0x00, 0x00, 0x00, 0x90 };
+    uint32_t rel_err = (uint32_t) my_sub_4232D0 - (ADDR_KPM_ERROR_DISPATCHER + 5);
+    memcpy(&jmp_err[1], &rel_err, sizeof(rel_err));
+    patch_memory(ADDR_KPM_ERROR_DISPATCHER, jmp_err, sizeof(jmp_err));
+
+    log_info(
+        "Installed Transfer & Collect responsiveness, Error 0xE800 elimination, and pay-stop protection patches",
+        ADDR_MAINAPP_UPDATE_GATE_1);
 
     if (cfg->boot_to_title) {
         /* In CGameStatus::Init (0x00425730):
@@ -993,30 +1220,81 @@ void kpm_io_hook_update(void)
     uint16_t btns = kpm_io_get_buttons();
     uint32_t btn_mask = (uint32_t) btns;
 
-    /* Optional: Auto-transfer inserted 100-yen coins to medals without pressing Transfer button */
+    /* If auto-transfer is enabled and player has inserted 100-yen coins, trigger transfer */
     if (s_cfg.coin_auto_transfer) {
         uint32_t *p_data = (uint32_t *) 0x00E652D4;
         if (p_data && *p_data) {
             uint32_t coin_meter = *((uint32_t *) (*p_data + 9608));
-            static DWORD s_last_transfer_toggle = 0;
-            static bool s_transfer_state = false;
-
             if (coin_meter > 0) {
-                DWORD now_transfer = GetTickCount();
-                if (now_transfer - s_last_transfer_toggle >= 100) {
-                    s_transfer_state = !s_transfer_state;
-                    s_last_transfer_toggle = now_transfer;
-                }
-                if (s_transfer_state) {
-                    btn_mask |= KPM_IO_BTN_TRANSFER;
-                }
-            } else {
-                s_transfer_state = false;
+                btn_mask |= KPM_IO_BTN_TRANSFER;
             }
         }
     }
 
+    /* Trace Transfer key transitions with real-time coin & credit balances */
+    static bool s_prev_transfer_state = false;
+    bool curr_transfer_pressed = (btn_mask & KPM_IO_BTN_TRANSFER) != 0;
+    uint8_t *crit = *((uint8_t **) 0x01ACE788);
+
+    if (curr_transfer_pressed && !s_prev_transfer_state) {
+        uint32_t *p_data = (uint32_t *) 0x00E652D4;
+        uint32_t coins_avail = (p_data && *p_data) ? *((uint32_t *) (*p_data + 9608)) : 0;
+        uint32_t credits_avail = (p_data && *p_data) ? *((uint32_t *) (*p_data + 9592)) : 0;
+        log_info(
+            "Transfer key pressed! coin_meter=%u, credits=%u, busy=%d, step=%u, latch=%d, debounce=%u",
+            coins_avail,
+            credits_avail,
+            crit ? crit[244] : -1,
+            crit ? *((uint16_t *) (crit + 246)) : 0xFFFF,
+            crit ? crit[276] : -1,
+            crit ? *((uint32_t *) (crit + 280)) : 0xFFFFFFFF);
+    }
+    s_prev_transfer_state = curr_transfer_pressed;
+
+    /* When Transfer key is released, actively clear transfer latch [crit+276] and debounce [crit+280] */
+    if (!curr_transfer_pressed && crit) {
+        crit[276] = 0;
+        *((uint32_t *) (crit + 280)) = 0;
+    }
+
+    /* Trace Collect key transitions */
+    static bool s_prev_collect_state = false;
+    bool curr_collect_pressed = (btn_mask & KPM_IO_BTN_COLLECT_PAYOUT) != 0;
+    if (curr_collect_pressed && !s_prev_collect_state) {
+        uint32_t *p_data = (uint32_t *) 0x00E652D4;
+        uint32_t coins_avail = (p_data && *p_data) ? *((uint32_t *) (*p_data + 9608)) : 0;
+        uint32_t credits_avail = (p_data && *p_data) ? *((uint32_t *) (*p_data + 9592)) : 0;
+        log_info(
+            "Collect key pressed! coin_meter=%u, credits=%u, busy=%d, step=%u, latch=%d, debounce=%u",
+            coins_avail,
+            credits_avail,
+            crit ? crit[244] : -1,
+            crit ? *((uint16_t *) (crit + 246)) : 0xFFFF,
+            crit ? crit[265] : -1,
+            crit ? *((uint32_t *) (crit + 256)) : 0xFFFFFFFF);
+    }
+    s_prev_collect_state = curr_collect_pressed;
+
+    /* When Collect key is released, actively clear collect latch [crit+265] and debounce [crit+256] */
+    if (!curr_collect_pressed && crit) {
+        crit[265] = 0;
+        *((uint32_t *) (crit + 256)) = 0;
+    }
+
+    /* Ensure payout allow flag [crit+266] is ALWAYS active (0xFF) to prevent false pay-stops */
+    if (crit) {
+        crit[299] = 1; /* Hopper enabled override for sub_4018A0 */
+        crit[266] = 0xFF; /* Payout allow flag ALWAYS active */
+    }
+
+    /* Synchronously write hardware buttons to BOTH subwrap + 336 and subboard + 4 */
     *((uint32_t *) (subwrap_base + 336)) = btn_mask;
+
+    uint32_t *p_subboard = (uint32_t *) ADDR_DWORD_1ACFCBC;
+    uint8_t *subboard_base = (p_subboard && *p_subboard) ? (uint8_t *) (*p_subboard) : NULL;
+    if (subboard_base) {
+        *((uint32_t *) (subboard_base + 4)) = btn_mask;
+    }
 
     /* Offset 946 (0x3B2): PCSub Cabinet Girlfriend Jumper bitmask
      * Bit 1 (0x02) = Manaka (Kanojyo ID 0)
@@ -1025,14 +1303,12 @@ void kpm_io_hook_update(void)
      */
     subwrap_base[946] = s_cabinet_jumper_byte;
 
-    /* Keep subboard instance helper buffer in sync if active */
-    uint32_t *p_subboard = (uint32_t *) ADDR_DWORD_1ACFCBC;
-    uint8_t *subboard_base = (p_subboard && *p_subboard) ? (uint8_t *) (*p_subboard) : NULL;
     if (subboard_base) {
         subboard_base[616] = s_cabinet_jumper_byte;
 
         /* Virtualize PCSub DS2430A authentic dongles */
-        if (subboard_base[101] != 0 || subboard_base[143] != 0) {
+        static bool s_dongles_injected = false;
+        if (!s_dongles_injected && (subboard_base[101] != 5 || subboard_base[143] != 5)) {
             init_ds2430a_dongles();
 
             /* Device 0: Black Software Plug */
@@ -1051,6 +1327,7 @@ void kpm_io_hook_update(void)
             check_dongles_fn_t p_check_dongles = (check_dongles_fn_t) ADDR_PCSUB_CHECK_DONGLES_FUNC;
             p_check_dongles(subboard_base);
 
+            s_dongles_injected = true;
             log_info(
                 "Injected authentic DS2430A dongles into PCSub: SoftPlug status=%d, NetPlug status=%d, PCBID=%s",
                 subboard_base[101],
@@ -1070,30 +1347,44 @@ void kpm_io_hook_update(void)
         ctx0[144] = 0;
         ctx0[40] = 1; /* Station eamuse enable */
         ctx0[42] = 1;
+        ctx0[14] = 1; /* Medal payout enable for sub_4018A0 */
+        ctx0[13] = 0; /* Disable pay-stop abort button */
+        ctx0[12] = 0; /* Clear hopper overflow error flag */
     }
     uint32_t *p_ctx1 = (uint32_t *) ADDR_STATION_CTX_1;
     if (p_ctx1 && *p_ctx1) {
         uint8_t *ctx1 = (uint8_t *) (*p_ctx1);
         ctx1[144] = 0;
+        ctx1[14] = 1;
+        ctx1[13] = 0;
+        ctx1[12] = 0;
     }
     uint32_t *p_ctx2 = (uint32_t *) ADDR_STATION_CTX_2;
     if (p_ctx2 && *p_ctx2) {
         uint8_t *ctx2 = (uint8_t *) (*p_ctx2);
         ctx2[144] = 0;
+        ctx2[14] = 1;
+        ctx2[13] = 0;
+        ctx2[12] = 0;
     }
 
-    /* Keep CEamuseControl online status synchronized */
+    /* Keep CEamuseControl station enable active (natural network status driven by eam_if) */
     uint32_t *p_eamuse = (uint32_t *) ADDR_GLOBAL_EAMUSE_CONTROL;
     if (p_eamuse && *p_eamuse) {
         uint8_t *eam_base = (uint8_t *) (*p_eamuse);
         eam_base[101] = 1; /* Station eamuse enable */
-        *((uint16_t *) (eam_base + 272)) = 1; /* network_status = 1 (ONLINE) */
-        *((uint16_t *) (eam_base + 274)) = 2; /* service_status = 2 (AVAILABLE) */
-        *((uint32_t *) (eam_base + 264)) = 0; /* error_code = 0 */
     }
 
     /* Ensure subboard ready flag (subwrap + 284) is active so sub_5C9C40 runs all state machines */
     *((uint16_t *) (subwrap_base + 284)) = 1;
+
+    /* Ensure CMainApplication gates (+228 and +229) are active so sub_403550 processes transfer */
+    uint32_t *p_mainapp = (uint32_t *) 0x01ACE78C;
+    if (p_mainapp && *p_mainapp) {
+        uint8_t *mainapp = (uint8_t *) (*p_mainapp);
+        mainapp[228] = 1;
+        mainapp[229] = 1;
+    }
 
     /* Feed hardware buttons to subboard raw input buffer (offset 4) */
     if (subboard_base) {
@@ -1101,45 +1392,84 @@ void kpm_io_hook_update(void)
     }
 
     /* Offset 476 (0x1DC): MEDAL IN pulse counter
-     *   Directly adds playable Game Credits via sub_401610(count * medal_rate, 0).
-     *   Also feeds Selector 1 hardware registers (632..634) for Test Mode verification.
+     * Offset 296..298: Direct CPcSubWrap medal ingestion for sub_403230
      */
     uint16_t medals = kpm_io_get_medal_pulse();
     if (medals > 0) {
+        static uint8_t s_medal_seq = 0;
+        s_medal_seq++;
+        if (s_medal_seq == 0) {
+            s_medal_seq = 1;
+        }
+
+        /* 1. Direct ingestion into CPcSubWrap: consumed by sub_403230 to call sub_401610(medals * rate, 0) */
+        subwrap_base[297] = s_medal_seq;
+        *((uint16_t *) (subwrap_base + 298)) = medals;
+        subwrap_base[296] = 1;
+
+        /* 2. Update subwrap + 476 and subboard hardware registers for Test Mode verification */
         *((uint16_t *) (subwrap_base + 476)) += medals;
         if (subboard_base) {
-            subboard_base[632] = 1; /* In-pulse flag */
-            subboard_base[633] += 1; /* Seq */
-            *((uint16_t *) (subboard_base + 634)) = medals; /* Count */
-            subboard_base[625] = 0; /* Blocker normal */
+            subboard_base[619] = 1;
+            subboard_base[620] = 1;
+            subboard_base[621] = s_medal_seq;
+            *((uint16_t *) (subboard_base + 622)) = medals;
+
+            subboard_base[632] = 1;
+            subboard_base[633] = s_medal_seq;
+            *((uint16_t *) (subboard_base + 634)) = medals;
+            subboard_base[625] = 0;
             *((uint32_t *) (subboard_base + 628)) += 1;
         }
-        log_info("Dispatched %u medal pulse(s) to CPcSubWrap (offset 476)", medals);
+        log_info("Dispatched %u medal pulse(s) to CPcSubWrap (offset 296, seq=%u)", medals, s_medal_seq);
     }
 
     /* Offset 508 (0x1FC): COIN IN pulse counter
-     *   Increments 100-yen coin meter accounting display via sub_401610(count, 4).
-     *   Also feeds Selector 2 hardware registers (664..666) for Test Mode verification.
+     * Offset 300..302: Direct CPcSubWrap coin ingestion for sub_403230
      */
     uint16_t coins = kpm_io_get_coin_pulse();
     if (coins > 0) {
+        static uint8_t s_coin_seq = 0;
+        s_coin_seq++;
+        if (s_coin_seq == 0) {
+            s_coin_seq = 1;
+        }
+
+        /* 1. Direct ingestion into CPcSubWrap: consumed by sub_403230 to call sub_401610(coins, 4),
+         * which increments 100-yen coin balance in g_pMedalAccounting + 9608 so Transfer button works! */
+        subwrap_base[301] = s_coin_seq;
+        *((uint16_t *) (subwrap_base + 302)) = coins;
+        subwrap_base[300] = 1;
+
+        /* 2. Update subwrap + 508 and subboard hardware registers for Test Mode verification */
         *((uint16_t *) (subwrap_base + 508)) += coins;
         if (subboard_base) {
-            subboard_base[664] = 1; /* In-pulse flag */
-            subboard_base[665] += 1; /* Seq */
-            *((uint16_t *) (subboard_base + 666)) = coins; /* Count */
-            subboard_base[659] = 0; /* Blocker normal */
+            subboard_base[652] = 1;
+            subboard_base[653] = 1;
+            subboard_base[654] = s_coin_seq;
+            *((uint16_t *) (subboard_base + 656)) = coins;
+
+            subboard_base[664] = 1;
+            subboard_base[665] = s_coin_seq;
+            *((uint16_t *) (subboard_base + 666)) = coins;
+            subboard_base[659] = 0;
             *((uint32_t *) (subboard_base + 660)) += 1;
         }
-        log_info("Dispatched %u coin pulse(s) to CPcSubWrap (offset 508)", coins);
+        log_info("Dispatched %u coin pulse(s) to CPcSubWrap (offset 300, seq=%u)", coins, s_coin_seq);
     }
 
-    /* If player operates buttons, coins, or medals, reset the Slot Mode idle timer */
-    if (btn_mask != 0 || medals > 0 || coins > 0) {
-        uint32_t *p_idle_timer = get_slot_idle_timer();
-        if (p_idle_timer) {
-            *p_idle_timer = GetTickCount();
-        }
+    /* Check coin meter directly from medal accounting (0x00E652D4 + 0x2588) */
+    uint32_t coin_meter = 0;
+    uint32_t *p_medal_acct = (uint32_t *) 0x00E652D4;
+    if (p_medal_acct && *p_medal_acct) {
+        uint8_t *acct = (uint8_t *) (*p_medal_acct);
+        coin_meter = *((uint32_t *) (acct + 0x2588));
+    }
+
+    /* If player operates buttons, coins, medals, touches the screen,
+     * OR holds un-transferred coins in the coin meter: keep idle timers alive! */
+    if (btn_mask != 0 || medals > 0 || coins > 0 || coin_meter > 0 || kpm_touch_get_and_clear_activity()) {
+        reset_game_idle_timers();
     }
 
     /* --- Virtual Hopper Engine (出币/退币料斗仿真引擎闭环) ---
@@ -1162,52 +1492,131 @@ void kpm_io_hook_update(void)
      *   subboard + 708: uint16_t error code (0=No error)
      *   subboard + 712: uint32_t error seq
      */
-    uint16_t hopper_state = *((uint16_t *) (subwrap_base + 420));
     uint16_t req_payout = *((uint16_t *) (subwrap_base + 422));
+    uint16_t hopper_state = *((uint16_t *) (subwrap_base + 420));
 
-    /* Capture new payout requests from game logic or test menu */
-    if (hopper_state == 0 || hopper_state == 10 || hopper_state == 20) {
-        if (req_payout > 0) {
-            kpm_io_payout_demand(req_payout);
+    /* 1. Capture new payout request whenever sub_5C9330 writes to +422 or state is 10/20 */
+    if (req_payout > 0) {
+        log_info("Virtual Hopper: Captured payout demand for %u medals (hopper_state=%u)",
+                 req_payout, hopper_state);
+        kpm_io_payout_demand(req_payout);
+        *((uint16_t *) (subwrap_base + 422)) = 0;
+        *((uint16_t *) (subwrap_base + 420)) = 50;
+        *((uint32_t *) (subwrap_base + 444)) = 1; /* 1 = PayingOut */
+        *((uint16_t *) (subwrap_base + 424)) = 0;
+        hopper_state = 50;
+    }
+
+    /* 2. Synchronize virtual hopper hardware registers with simulation */
+    uint16_t paid_count = 0;
+    bool motor_running = false;
+    bool sensor_active = false;
+    uint8_t h_status = kpm_io_get_payout_detail(&paid_count, &motor_running, &sensor_active);
+
+    static bool s_logged_complete = false;
+
+    if (h_status == 1) {
+        /* Actively dispensing medals */
+        s_logged_complete = false;
+        reset_game_idle_timers();
+        *((uint16_t *) (subwrap_base + 420)) = 50;
+        *((uint16_t *) (subwrap_base + 424)) = paid_count;
+        *((uint32_t *) (subwrap_base + 444)) = 1;
+
+        if (subboard_base) {
+            subboard_base[700] = 1;
+            subboard_base[701] = sensor_active ? 1 : 0;
+            subboard_base[702] = 0;
+            subboard_base[691] = 1;
+            *((uint16_t *) (subboard_base + 692)) = paid_count;
+            *((uint32_t *) (subboard_base + 696)) += 1;
+            *((uint32_t *) (subboard_base + 704)) += 1;
+        }
+    } else if (h_status == 2) {
+        /* Dispensing complete */
+        if (!s_logged_complete) {
+            log_info("Virtual Hopper: Completed dispensing %u medals! Awaiting game state machine finish...", paid_count);
+            s_logged_complete = true;
+        }
+        *((uint16_t *) (subwrap_base + 420)) = 0;
+        *((uint16_t *) (subwrap_base + 424)) = paid_count;
+        *((uint32_t *) (subwrap_base + 444)) = 2; /* 2 = Complete */
+
+        if (subboard_base) {
+            subboard_base[700] = 0;
+            subboard_base[701] = 0;
+            subboard_base[702] = 0;
+            subboard_base[691] = 2;
+            *((uint16_t *) (subboard_base + 692)) = paid_count;
+            *((uint32_t *) (subboard_base + 696)) += 1;
+            *((uint32_t *) (subboard_base + 704)) += 1;
+        }
+    } else {
+        /* Hopper idle */
+        *((uint16_t *) (subwrap_base + 420)) = 0; /* Keep idle so sub_5C9330 always accepts requests */
+        if (subboard_base) {
+            subboard_base[700] = 0;
+            subboard_base[701] = 0;
+            subboard_base[702] = 0;
+            *((uint32_t *) (subboard_base + 704)) += 1;
         }
     }
 
-    /* State 20 (WaitAck): simulate subboard acknowledging error check command 288 */
-    if (hopper_state == 20 && subboard_base) {
-        *((uint16_t *) (subboard_base + 708)) = 0; /* No error */
-        *((uint32_t *) (subboard_base + 712)) = *((uint32_t *) (subwrap_base + 436)) + 1;
-    }
+    /* 3. Payout State Guard & Failsafe Watchdog */
+    if (crit) {
+        uint16_t payout_step = *((uint16_t *) (crit + 246));
+        uint32_t result_stat = *((uint32_t *) (subwrap_base + 444));
 
-    /* Synchronize virtual hopper physical registers (motor, optical sensor, counters) */
-    if (subboard_base) {
-        uint16_t paid_count = 0;
-        bool motor_running = false;
-        bool sensor_active = false;
-        uint8_t h_status = kpm_io_get_payout_detail(&paid_count, &motor_running, &sensor_active);
-
-        /* Physical register emulation for Test Mode and Runtime */
-        subboard_base[700] = motor_running ? 1 : 0;
-        subboard_base[701] = sensor_active ? 1 : 0;
-        subboard_base[702] = 0; /* 0: NORMAL */
-        *((uint32_t *) (subboard_base + 704)) += 1;
-
-        if (hopper_state == 50) {
-            uint32_t *p_idle_timer = get_slot_idle_timer();
-            if (p_idle_timer) {
-                *p_idle_timer = GetTickCount(); /* Prevent idle timeout during large payouts */
-            }
-
-            if (h_status == 1 || h_status == 2) {
-                subboard_base[691] = h_status;
-                *((uint16_t *) (subboard_base + 692)) = paid_count;
-                *((uint32_t *) (subboard_base + 696)) = *((uint32_t *) (subwrap_base + 432)) + 1;
+        /* Handshake closure: When game returns to payout_step == 0 after completing payout (result_stat == 2),
+         * cleanly reset result status, hopper state, and kpmio demand */
+        if (payout_step == 0) {
+            if (result_stat == 2) {
+                *((uint32_t *) (subwrap_base + 444)) = 0;
+                *((uint16_t *) (subwrap_base + 420)) = 0;
+                kpm_io_payout_demand(0);
+                log_info("Virtual Hopper: Handshake closed cleanly (payout_step=0, result_stat=0)");
             }
         }
-    }
 
-    if (hopper_state == 0) {
-        /* Reset virtual hopper when game returns to idle */
-        kpm_io_payout_demand(0);
+        /* Progress-based stuck payout failsafe watchdog:
+         * Only triggers if payout is stuck with NO medal progress for > 15s */
+        static DWORD s_last_progress_tick = 0;
+        static uint16_t s_last_paid_check = 0xFFFF;
+        if (payout_step > 0) {
+            if (s_last_progress_tick == 0 || paid_count != s_last_paid_check) {
+                s_last_progress_tick = GetTickCount();
+                s_last_paid_check = paid_count;
+            } else if (GetTickCount() - s_last_progress_tick > 15000) {
+                log_warning(
+                    "Payout watchdog: auto-clearing truly stuck payout_step %u (paid=%u) after 15s no progress",
+                    payout_step,
+                    paid_count);
+                crit[244] = 0;
+                *((uint16_t *) (crit + 246)) = 0;
+                *((uint16_t *) (crit + 292)) = 0;
+                crit[265] = 0;
+                *((uint32_t *) (crit + 256)) = 0;
+                *((uint16_t *) (subwrap_base + 420)) = 0;
+                *((uint16_t *) (subwrap_base + 422)) = 0;
+                *((uint32_t *) (subwrap_base + 444)) = 0;
+                kpm_io_payout_demand(0);
+                s_last_progress_tick = 0;
+                s_last_paid_check = 0xFFFF;
+            }
+        } else {
+            s_last_progress_tick = 0;
+            s_last_paid_check = 0xFFFF;
+        }
+
+        /* Keep residual payout accounting clean when machine is not paying out */
+        if (payout_step == 0) {
+            uint32_t *p_acct = (uint32_t *) 0x00E652D4;
+            if (p_acct && *p_acct) {
+                uint8_t *acct = (uint8_t *) (*p_acct);
+                *((uint32_t *) (acct + 9612)) = 0;
+                *((uint32_t *) (acct + 9860)) = 0;
+            }
+        }
     }
 
     /* Drain the PCSub serial command queue at offset 532 (32 slots of 12 bytes) */

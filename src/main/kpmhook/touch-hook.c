@@ -31,6 +31,14 @@ struct elo_screen_queue {
 
 static struct elo_screen_queue s_screens[MAX_SCREENS];
 static bool s_touch_inited = false;
+static volatile bool s_touch_activity = false;
+
+bool kpm_touch_get_and_clear_activity(void)
+{
+    bool act = s_touch_activity;
+    s_touch_activity = false;
+    return act;
+}
 
 static void patch_memory(uintptr_t addr, const uint8_t *bytes, size_t len)
 {
@@ -61,6 +69,7 @@ void kpm_touch_post_event(int screen, int client_x, int client_y, int client_w, 
     if (screen != 0 || client_w <= 0 || client_h <= 0) {
         return;
     }
+    s_touch_activity = true;
     init_screen_queues();
 
     /* Convert client pixels to Elo 12-bit ADC raw range (0..4092) with half-pixel rounding */
