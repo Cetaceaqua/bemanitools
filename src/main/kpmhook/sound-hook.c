@@ -130,7 +130,7 @@ static const char *rewrite_s3b_path(const char *in_path)
         if (!GetFullPathNameA(combined, MAX_PATH, s_s3b_rewritten, NULL)) {
             strncpy(s_s3b_rewritten, combined, MAX_PATH);
         }
-        log_info("sub_5EAE10 (S3B): '%s' -> '%s'", in_path, s_s3b_rewritten);
+        log_misc("Sound script path redirected: '%s' -> '%s'", in_path, s_s3b_rewritten);
         return s_s3b_rewritten;
     }
 

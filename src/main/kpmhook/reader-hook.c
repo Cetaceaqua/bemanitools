@@ -144,7 +144,7 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
         static bool s_logged_first_poll = false;
         if (!s_logged_first_poll) {
             s_logged_first_poll = true;
-            log_info("Game started card reader RFID polling loop (cmd 0x34)");
+            log_misc("Game started card reader RFID polling loop (cmd 0x34)");
         }
 
         ensure_eamio_initialized();

@@ -319,18 +319,14 @@ static HANDLE WINAPI my_CreateFileA(
         h = real_CreateFileA(
             rewrote, dwDesiredAccess, dwShareMode, lpSecurityAttributes,
             dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
-        log_info("CreateFileA: '%s' -> '%s' (h=%p, err=%lu)",
+        log_misc("CreateFileA: '%s' -> '%s' (h=%p, err=%lu)",
                  lpFileName, rewrote, h, (h == INVALID_HANDLE_VALUE) ? GetLastError() : 0);
         return h;
     }
 
-    h = real_CreateFileA(
+    return real_CreateFileA(
         lpFileName, dwDesiredAccess, dwShareMode, lpSecurityAttributes,
         dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
-    if (h == INVALID_HANDLE_VALUE) {
-        log_warning("CreateFileA unrewritten failed: '%s' (err=%lu)", lpFileName, GetLastError());
-    }
-    return h;
 }
 
 static HANDLE WINAPI my_CreateFileW(
@@ -351,7 +347,7 @@ static HANDLE WINAPI my_CreateFileW(
         h = real_CreateFileW(
             rewrote, dwDesiredAccess, dwShareMode, lpSecurityAttributes,
             dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
-        log_info("CreateFileW: '%ls' -> '%ls' (h=%p, err=%lu)",
+        log_misc("CreateFileW: '%ls' -> '%ls' (h=%p, err=%lu)",
                  lpFileName, rewrote, h, (h == INVALID_HANDLE_VALUE) ? GetLastError() : 0);
         return h;
     }
@@ -427,15 +423,11 @@ static HANDLE WINAPI my_FindFirstFileA(LPCSTR lpFileName, LPWIN32_FIND_DATAA lpF
     HANDLE h;
     if (rewrite_path_a(lpFileName, rewrote, MAX_PATH, false)) {
         h = real_FindFirstFileA(rewrote, lpFindFileData);
-        log_info("FindFirstFileA: '%s' -> '%s' (h=%p, err=%lu)",
+        log_misc("FindFirstFileA: '%s' -> '%s' (h=%p, err=%lu)",
                  lpFileName, rewrote, h, (h == INVALID_HANDLE_VALUE) ? GetLastError() : 0);
         return h;
     }
-    h = real_FindFirstFileA(lpFileName, lpFindFileData);
-    if (h == INVALID_HANDLE_VALUE) {
-        log_warning("FindFirstFileA unrewritten failed: '%s' (err=%lu)", lpFileName, GetLastError());
-    }
-    return h;
+    return real_FindFirstFileA(lpFileName, lpFindFileData);
 }
 
 static HANDLE WINAPI my_FindFirstFileW(LPCWSTR lpFileName, LPWIN32_FIND_DATAW lpFindFileData)
@@ -444,12 +436,11 @@ static HANDLE WINAPI my_FindFirstFileW(LPCWSTR lpFileName, LPWIN32_FIND_DATAW lp
     HANDLE h;
     if (rewrite_path_w(lpFileName, rewrote, MAX_PATH, false)) {
         h = real_FindFirstFileW(rewrote, lpFindFileData);
-        log_info("FindFirstFileW: '%ls' -> '%ls' (h=%p, err=%lu)",
+        log_misc("FindFirstFileW: '%ls' -> '%ls' (h=%p, err=%lu)",
                  lpFileName, rewrote, h, (h == INVALID_HANDLE_VALUE) ? GetLastError() : 0);
         return h;
     }
-    h = real_FindFirstFileW(lpFileName, lpFindFileData);
-    return h;
+    return real_FindFirstFileW(lpFileName, lpFindFileData);
 }
 
 static BOOL WINAPI my_DeleteFileA(LPCSTR lpFileName)

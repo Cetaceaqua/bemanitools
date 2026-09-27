@@ -138,13 +138,13 @@ void kpm_touch_post_event(int screen, int client_x, int client_y, int client_w, 
 
 static int __cdecl my_EloSetMouseMode(int mode, int screen)
 {
-    log_info("EloSetMouseMode(mode=%d, screen=%d)", mode, screen);
+    log_misc("EloSetMouseMode(mode=%d, screen=%d)", mode, screen);
     return 0;
 }
 
 static int __cdecl my_EloSetTouchReportingState(int state, int screen)
 {
-    log_info("EloSetTouchReportingState(state=%d, screen=%d)", state, screen);
+    log_misc("EloSetTouchReportingState(state=%d, screen=%d)", state, screen);
     return 0;
 }
 
@@ -157,7 +157,7 @@ static int __cdecl my_EloGetScreenInfo(void *buf, unsigned int *num_screens)
     if (num_screens) {
         *num_screens = MAX_SCREENS; /* KPM cabinet has exactly 1 touch screen on Main Station 0 */
     }
-    log_info("EloGetScreenInfo called -> reporting %u screen(s)", num_screens ? *num_screens : 0);
+    log_misc("EloGetScreenInfo called -> reporting %u screen(s)", num_screens ? *num_screens : 0);
     return 0; /* 0 = EloSuccess */
 }
 
@@ -193,11 +193,7 @@ static int __cdecl my_EloGetTouch(int *touch_data, int a2, int a3, unsigned int 
         touch_data[2] = 0;
         touch_data[3] = ev.type;
 
-        static uint32_t s_log_touch = 0;
-        if ((s_log_touch++ % 60) == 0 || ev.type == 1 || ev.type == 4) {
-            log_info("EloGetTouch[screen %u]: x=%d, y=%d, type=%d (1=Down, 2=Move, 4=Up)",
-                     screen, ev.x, ev.y, ev.type);
-        }
+        log_misc("EloGetTouch[screen %u]: x=%d, y=%d, type=%d", screen, ev.x, ev.y, ev.type);
         return 0; /* 0 = Data available */
     }
 
@@ -207,25 +203,25 @@ static int __cdecl my_EloGetTouch(int *touch_data, int a2, int a3, unsigned int 
 
 static int __cdecl my_EloCancel(void)
 {
-    log_info("EloCancel()");
+    log_misc("EloCancel()");
     return 0;
 }
 
 static int __cdecl my_EloSetBeep(void *data, int screen)
 {
-    log_info("EloSetBeep(screen=%d)", screen);
+    log_misc("EloSetBeep(screen=%d)", screen);
     return 0;
 }
 
 static int __cdecl my_StartHooknMouse(void)
 {
-    log_info("StartHooknMouse() intercepted -> no-op to allow standard cursor");
+    log_misc("StartHooknMouse() intercepted -> no-op to allow standard cursor");
     return 0;
 }
 
 static int __cdecl my_EndHooknMouse(void)
 {
-    log_info("EndHooknMouse() intercepted -> no-op");
+    log_misc("EndHooknMouse() intercepted -> no-op");
     return 0;
 }
 

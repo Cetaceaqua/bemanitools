@@ -222,7 +222,7 @@ static HRESULT STDMETHODCALLTYPE video_CreateSurface(
     IDirect3DSurface9 **ppSurface,
     HANDLE *pSharedHandle)
 {
-    log_info("IDirect3DVideoDevice9::CreateSurface: %ux%u fmt=%u pool=%u usage=0x%lx",
+    log_misc("IDirect3DVideoDevice9::CreateSurface: %ux%u fmt=%u pool=%u usage=0x%lx",
              Width, Height, Format, Pool, Usage);
     if (!s_real_device) return E_FAIL;
 
@@ -249,7 +249,7 @@ static HRESULT STDMETHODCALLTYPE video_GetDXVAGuids(
     DWORD *pNumGuids,
     GUID *pGuids)
 {
-    log_info("IDirect3DVideoDevice9::GetDXVAGuids called -> returning 0 hardware DXVA GUIDs (software fallback)");
+    log_misc("IDirect3DVideoDevice9::GetDXVAGuids called -> returning 0 hardware DXVA GUIDs (software fallback)");
     if (!pNumGuids) return E_POINTER;
     *pNumGuids = 0;
     return S_OK;
@@ -271,7 +271,7 @@ static HRESULT STDMETHODCALLTYPE video_GetUncompressedDXVAFormats(
     DWORD *pNumFormats,
     D3DFORMAT *pFormats)
 {
-    log_info("IDirect3DVideoDevice9::GetUncompressedDXVAFormats called -> returning 0 formats");
+    log_misc("IDirect3DVideoDevice9::GetUncompressedDXVAFormats called -> returning 0 formats");
     if (!pNumFormats) return E_POINTER;
     *pNumFormats = 0;
     return S_OK;
@@ -297,7 +297,7 @@ static HRESULT STDMETHODCALLTYPE my_Device_QueryInterface(
     if (!ppvObj) return E_POINTER;
 
     if (memcmp(riid, &IID_IDirect3DVideoDevice9_local, sizeof(GUID)) == 0) {
-        log_info("IDirect3DDevice9::QueryInterface intercepted for IID_IDirect3DVideoDevice9! Returning fallback proxy.");
+        log_misc("IDirect3DDevice9::QueryInterface intercepted for IID_IDirect3DVideoDevice9! Returning fallback proxy.");
         *ppvObj = (void *) &s_video_device;
         video_AddRef(&s_video_device);
         return S_OK;
@@ -553,11 +553,11 @@ static HRESULT STDMETHODCALLTYPE my_GetDeviceCaps(
     IDirect3D9 *real = (IDirect3D9 *) com_proxy_downcast(self)->real;
     HRESULT hr = IDirect3D9_GetDeviceCaps(real, adapter, device_type, caps);
     if (SUCCEEDED(hr) && caps) {
-        log_info("GetDeviceCaps: Adapter=%u Type=%u -> hr=0x%08lx (orig NumberOfAdaptersInGroup=%u -> reporting 2)",
+        log_misc("GetDeviceCaps: Adapter=%u Type=%u -> hr=0x%08lx (orig NumberOfAdaptersInGroup=%u -> reporting 2)",
                  adapter, device_type, hr, caps->NumberOfAdaptersInGroup);
         caps->NumberOfAdaptersInGroup = 2;
     } else {
-        log_info("GetDeviceCaps: Adapter=%u Type=%u -> hr=0x%08lx", adapter, device_type, hr);
+        log_misc("GetDeviceCaps: Adapter=%u Type=%u -> hr=0x%08lx", adapter, device_type, hr);
     }
     return hr;
 }
@@ -577,7 +577,7 @@ static HRESULT STDMETHODCALLTYPE my_CheckDeviceType(
     windowed = TRUE;
 
     hr = IDirect3D9_CheckDeviceType(real, adapter, check_type, display_format, backbuffer_format, windowed);
-    log_info("CheckDeviceType: Adapter=%u Type=%u DispFmt=%u BBFmt=%u Win=%d -> hr=0x%08lx",
+    log_misc("CheckDeviceType: Adapter=%u Type=%u DispFmt=%u BBFmt=%u Win=%d -> hr=0x%08lx",
              adapter, check_type, display_format, backbuffer_format, windowed, hr);
 
     return hr;

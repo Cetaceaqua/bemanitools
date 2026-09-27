@@ -312,8 +312,8 @@ void kpm_io_set_lamps(uint32_t lamp_bits)
 {
     static uint32_t s_last_bits = 0xFFFFFFFF;
     if (lamp_bits != s_last_bits) {
-        if (s_log_info) {
-            s_log_info("kpmio", "kpm_io_set_lamps: 0x%08X", lamp_bits);
+        if (s_log_misc) {
+            s_log_misc("kpmio", "kpm_io_set_lamps: 0x%08X", lamp_bits);
         }
         s_last_bits = lamp_bits;
     }

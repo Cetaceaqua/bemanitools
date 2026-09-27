@@ -320,7 +320,7 @@ static void kpm_camera_copy_frame(void *cam_this)
     static uint32_t s_frame_cnt = 0;
     s_frame_cnt++;
     if (s_frame_cnt <= 5 || (s_frame_cnt % 120) == 0) {
-        log_info("Camera frame #%u: %dx%d, src=%p, dst1=%p, dst2=%p, sample=0x%08X",
+        log_misc("Camera frame #%u: %dx%d, src=%p, dst1=%p, dst2=%p, sample=0x%08X",
                  s_frame_cnt, width, height, (void*)src, (void*)dst1, (void*)dst2,
                  src ? *((uint32_t*)src) : 0);
     }

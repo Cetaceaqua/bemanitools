@@ -217,7 +217,7 @@ static void kpm_nvram_flush(void)
     if (written == NVRAM_SRAM_SIZE) {
         if (MoveFileExA(tmp_path, path, MOVEFILE_REPLACE_EXISTING)) {
             s_last_nvram_hash = cur_hash;
-            log_info("NVRAM saved to %s (hash: 0x%08X)", path, cur_hash);
+            log_misc("NVRAM saved to %s (hash: 0x%08X)", path, cur_hash);
         } else {
             log_warning("Failed to atomically replace NVRAM file %s (error %lu)", path, GetLastError());
         }
@@ -447,7 +447,7 @@ static const uintptr_t SUB_5C93A0_CONT = 0x005C93AB;
 
 static void my_sub_5C93A0_impl(void)
 {
-    log_info("sub_5C93A0 intercepted (pay stop ignored to protect active virtual hopper payout)");
+    log_misc("sub_5C93A0 intercepted (pay stop ignored to protect active virtual hopper payout)");
 }
 
 static void __cdecl my_sub_4232D0(int a1, unsigned int code, int a3, int a4)
@@ -1463,7 +1463,7 @@ void kpm_io_hook_update(void)
         uint32_t p1 = cmd[1];
         uint32_t p2 = cmd[2];
 
-        log_info("Cabinet illumination command: code=%u, p1=%u, p2=0x%08X", code, p1, p2);
+        log_misc("Cabinet illumination command: code=%u, p1=%u, p2=0x%08X", code, p1, p2);
 
         if (s_light_serial != INVALID_HANDLE_VALUE) {
             uint32_t packet[3] = { code, p1, p2 };
@@ -1484,7 +1484,7 @@ void kpm_io_hook_update(void)
 
     static uint32_t s_last_logged_lamp_bits = 0xFFFFFFFF;
     if (lamp_bits != s_last_logged_lamp_bits) {
-        log_info(
+        log_misc(
             "Lamp bits changed: 0x%03X (Btns: 0x%02X, POP: 0x%02X)",
             lamp_bits,
             lamp_bits & 0x1F,

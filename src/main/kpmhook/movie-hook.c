@@ -99,12 +99,13 @@ static char __cdecl my_wmv_open_impl(void *this_ptr, const wchar_t *pszFileName,
     int actual_a3 = real_d3d9 ? (int) real_d3d9 : a3;
     int actual_a4 = dev_proxy ? (int) dev_proxy : (real_dev ? (int) real_dev : a4);
 
-    log_info("CWmvPlayerVMR9::Open: opening '%ls' (this=%p, d3d9=%p, dev=%p)",
-             final_path, this_ptr, (void *) actual_a3, (void *) actual_a4);
+    log_info("Opening attract movie: '%ls'", final_path);
+    log_misc("CWmvPlayerVMR9::Open: this=%p, d3d9=%p, dev=%p",
+             this_ptr, (void *) actual_a3, (void *) actual_a4);
     char res = call_real_wmv_open(this_ptr, final_path, actual_a3, actual_a4, a5);
     uint32_t err_step = *(uint32_t *)((uint8_t *)this_ptr + 76);
     uint32_t hr_err = *(uint32_t *)((uint8_t *)this_ptr + 80);
-    log_info("CWmvPlayerVMR9::Open returned: %d (error_step=%u, hr=0x%08X)", res, err_step, hr_err);
+    log_misc("CWmvPlayerVMR9::Open returned: %d (error_step=%u, hr=0x%08X)", res, err_step, hr_err);
     return res;
 }
 
@@ -154,7 +155,7 @@ static char __cdecl my_check_movie_ready(uint8_t *movie_ctrl)
             frames++;
             *(uint32_t *)(movie_ctrl + 2064) = frames;
             if (frames > 4) {
-                log_info("Attract movie started playing (>4 frames output); entering Step 18");
+                log_misc("Attract movie started playing (>4 frames output); entering Step 18");
                 s_step17_wait_frames = 0;
                 return 1;
             }
@@ -194,7 +195,7 @@ static __declspec(naked) void my_movie_ready_thunk(void)
 static bool my_step14_check_movie(int char_idx)
 {
     if (!s_play_movie) {
-        log_info("Movie playback disabled (play_movie=false): skipping Step 15 white fadeout, going directly to slot mode");
+        log_misc("Movie playback disabled (play_movie=false): skipping Step 15 white fadeout, going directly to slot mode");
         return false;
     }
 

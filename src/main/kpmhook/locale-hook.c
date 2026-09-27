@@ -113,7 +113,7 @@ static HFONT WINAPI my_CreateFontW(
         bItalic, bUnderline, bStrikeOut, iCharSet, iOutPrecision,
         iClipPrecision, iQuality, iPitchAndFamily, pszFaceName);
 
-    log_info("CreateFontW: face='%S' h=%d charset=%u[orig=%u] -> hFont=0x%p",
+    log_misc("CreateFontW: face='%S' h=%d charset=%u[orig=%u] -> hFont=0x%p",
              pszFaceName ? pszFaceName : L"(null)", cHeight, iCharSet, orig_charset, hFont);
 
     /* If font creation failed and a specific face was requested, fallback to Japanese standard font */
@@ -137,7 +137,7 @@ static HANDLE WINAPI my_AddFontMemResourceEx(
     DWORD *pNumFonts)
 {
     HANDLE h = real_AddFontMemResourceEx(pFileView, cjSize, pvResrved, pNumFonts);
-    log_info("AddFontMemResourceEx(view=0x%p, size=%u) -> handle=0x%p (num_fonts=%u)",
+    log_misc("AddFontMemResourceEx(view=0x%p, size=%u) -> handle=0x%p (num_fonts=%u)",
              pFileView, cjSize, h, pNumFonts ? *pNumFonts : 0);
     return h;
 }
