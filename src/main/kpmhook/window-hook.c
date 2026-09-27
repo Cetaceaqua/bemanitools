@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "bemanitools/kpmio.h"
 #include "hook/table.h"
 #include "kpmhook/config-kpm.h"
 #include "kpmhook/window-hook.h"
@@ -252,9 +253,81 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
                 if (type == 4) ReleaseCapture();
 
                 kpm_touch_post_event(0, rel_x, rel_y, cw, ch, type);
+            } else if (hWnd == s_station1_hwnd) {
+                if (kpm_config_get_upper_screen_touch()) {
+                    int type = (Msg == WM_LBUTTONDOWN) ? 1 : ((Msg == WM_MOUSEMOVE) ? 2 : 4);
+                    if (type == 2 && !(wParam & MK_LBUTTON)) {
+                        break;
+                    }
+
+                    if (type == 1) SetCapture(hWnd);
+                    if (type == 4) ReleaseCapture();
+
+                    if (type == 4) {
+                        kpm_io_set_touch_upper_screen(false, false);
+                    } else {
+                        RECT dst_rc;
+                        int ox = 0, oy = 0, cw = 0, ch = 0;
+                        if (kpm_d3d9_get_station1_dest_rect(&dst_rc)) {
+                            ox = dst_rc.left;
+                            oy = dst_rc.top;
+                            cw = dst_rc.right - dst_rc.left;
+                            ch = dst_rc.bottom - dst_rc.top;
+                        } else {
+                            RECT rc;
+                            GetClientRect(hWnd, &rc);
+                            cw = rc.right - rc.left;
+                            ch = rc.bottom - rc.top;
+                        }
+
+                        int mx = (short) LOWORD(lParam);
+                        int my = (short) HIWORD(lParam);
+
+                        if (mx >= ox && mx < ox + cw && my >= oy && my < oy + ch && cw > 0 && ch > 0) {
+                            int rel_x = mx - ox;
+                            int rel_y = my - oy;
+                            bool rotate = kpm_config_get_rotate();
+                            if (rotate) {
+                                /* Portrait presentation (upright): Left half -> Upper Screen L, Right half -> Upper Screen R */
+                                if (rel_x < cw / 2) {
+                                    kpm_io_set_touch_upper_screen(true, false);
+                                } else {
+                                    kpm_io_set_touch_upper_screen(false, true);
+                                }
+                            } else {
+                                if (cw >= ch) {
+                                    /* Landscape presentation (unrotated, character lying sideways with head at right):
+                                     * Arcade cabinet left sensor is top half (rel_y < ch / 2)
+                                     * Arcade cabinet right sensor is bottom half (rel_y >= ch / 2) */
+                                    if (rel_y < ch / 2) {
+                                        kpm_io_set_touch_upper_screen(true, false);
+                                    } else {
+                                        kpm_io_set_touch_upper_screen(false, true);
+                                    }
+                                } else {
+                                    /* Native portrait monitor without software rotation */
+                                    if (rel_x < cw / 2) {
+                                        kpm_io_set_touch_upper_screen(true, false);
+                                    } else {
+                                        kpm_io_set_touch_upper_screen(false, true);
+                                    }
+                                }
+                            }
+                        } else {
+                            kpm_io_set_touch_upper_screen(false, false);
+                        }
+                    }
+                }
             }
             break;
         }
+
+        case WM_CAPTURECHANGED:
+        case WM_KILLFOCUS:
+            if (hWnd == s_station1_hwnd) {
+                kpm_io_set_touch_upper_screen(false, false);
+            }
+            break;
 
         /* Ensure mouse cursor is visible whenever mouse enters client area */
         case WM_SETCURSOR: {

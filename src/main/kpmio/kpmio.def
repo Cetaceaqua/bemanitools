@@ -16,3 +16,4 @@ EXPORTS
     kpm_io_is_card_placed
     kpm_io_set_card_placed
     kpm_io_set_card_available
+    kpm_io_set_touch_upper_screen

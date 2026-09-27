@@ -11,6 +11,7 @@ IDirect3DDevice9 *kpm_d3d9_get_real_device(void);
 IDirect3DDevice9 *kpm_d3d9_get_device_proxy(void);
 
 bool kpm_d3d9_get_station0_dest_rect(RECT *rc);
+bool kpm_d3d9_get_station1_dest_rect(RECT *rc);
 
 #endif /* KPMHOOK_D3D9_HOOK_H */
 

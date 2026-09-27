@@ -24,6 +24,8 @@ static bool s_card_available = false;
 static bool s_card_placed = false;
 static bool s_insert_card_last = false;
 static bool s_eject_card_last = false;
+static volatile bool s_touch_upper_l = false;
+static volatile bool s_touch_upper_r = false;
 
 /* Virtual Hopper state */
 static uint16_t s_payout_demanded = 0;
@@ -69,6 +71,8 @@ bool kpm_io_init(
     s_card_placed = false;
     s_insert_card_last = false;
     s_eject_card_last = false;
+    s_touch_upper_l = false;
+    s_touch_upper_r = false;
     s_hopper_state = 0;
     s_hopper_sensor = false;
     s_payout_demanded = 0;
@@ -92,6 +96,12 @@ bool kpm_io_read_inputs(void)
 {
     uint64_t pack = mapper_update();
     s_buttons = (uint16_t) (pack & 0x01FF); /* Bits 0..8 configured via config.exe */
+    if (s_touch_upper_l) {
+        s_buttons |= KPM_IO_BTN_UPPER_SCREEN_L;
+    }
+    if (s_touch_upper_r) {
+        s_buttons |= KPM_IO_BTN_UPPER_SCREEN_R;
+    }
 
     /* Medal In: mapped bit 9 (rising edge triggers 1 medal pulse, hold repeats) */
     bool medal_key = (pack & (1ULL << 9)) != 0;
@@ -205,7 +215,20 @@ bool kpm_io_read_inputs(void)
 
 uint16_t kpm_io_get_buttons(void)
 {
-    return s_buttons;
+    uint16_t btns = s_buttons;
+    if (s_touch_upper_l) {
+        btns |= KPM_IO_BTN_UPPER_SCREEN_L;
+    }
+    if (s_touch_upper_r) {
+        btns |= KPM_IO_BTN_UPPER_SCREEN_R;
+    }
+    return btns;
+}
+
+void kpm_io_set_touch_upper_screen(bool l, bool r)
+{
+    s_touch_upper_l = l;
+    s_touch_upper_r = r;
 }
 
 uint16_t kpm_io_get_medal_pulse(void)

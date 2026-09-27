@@ -85,7 +85,7 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     }
 
     /* Bootstrap compatibility game.conf if absent */
-    kpm_config_bootstrap(&config_gfx);
+    kpm_config_bootstrap(&config_gfx, &config_io);
 
     /* Intercept Direct3D9 to fix Windows 10/11 presentation incompatibilities */
     kpm_d3d9_hook_init(config_gfx.windowed);

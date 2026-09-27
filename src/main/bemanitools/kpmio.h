@@ -162,4 +162,9 @@ void kpm_io_set_card_placed(bool placed);
  */
 void kpm_io_set_card_available(bool available);
 
+/**
+ * Set sub-screen touch / mouse IR emulation state (Upper Screen L / R).
+ */
+void kpm_io_set_touch_upper_screen(bool l, bool r);
+
 #endif /* BEMANITOOLS_KPMIO_H */

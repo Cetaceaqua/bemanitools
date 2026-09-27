@@ -9,9 +9,11 @@
 #include "bemanitools/eamio.h"
 #include "bemanitools/glue.h"
 #include "bemanitools/kpmio.h"
+#include "eamio/eam-config.h"
 #include "hook/table.h"
 #include "kpmhook/config-io.h"
 #include "kpmhook/reader-hook.h"
+#include "util/fs.h"
 #include "util/log.h"
 #include "util/thread.h"
 
@@ -165,22 +167,22 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
         uint8_t uid[8] = {0};
         uint8_t kpm_card_type = 0;
 
-        /* Check if a valid card is configured in Config (eamio) */
-        uint8_t card_type = eam_io_read_card(0, uid, sizeof(uid));
-        bool has_configured_card = (card_type != EAM_IO_CARD_NONE);
-        if (has_configured_card) {
-            kpm_card_type = (card_type == EAM_IO_CARD_FELICA) ? 1 : 0;
-        }
+        /* Check configured card in eamio */
+        const struct eam_io_config_api *api = eam_io_get_config_api();
+        const char *card_path = api ? api->get_card_path(0) : NULL;
+        bool autogen = api ? api->get_autogen() : false;
+        bool file_exists = (card_path && card_path[0] && path_exists(card_path));
+        bool can_place_card = (card_path && card_path[0]) && (file_exists || autogen);
 
         /* Synchronize card availability to kpmio backend */
-        kpm_io_set_card_available(has_configured_card);
+        kpm_io_set_card_available(can_place_card);
 
         if (key_insert && !s_key_insert_last) {
-            if (has_configured_card) {
+            if (can_place_card) {
                 kpm_io_set_card_placed(true);
                 log_info("Virtual RFID Tray: Card PLACED on reader tray (+ / Insert hotkey)");
             } else {
-                log_info("Virtual RFID Tray: Insert key ignored - no valid card configured in Config");
+                log_info("Virtual RFID Tray: Insert key ignored - no card configured in Config");
             }
         }
         s_key_insert_last = key_insert;
@@ -193,17 +195,23 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
         }
         s_key_eject_last = key_eject;
 
-        if (sensor != 0 && has_configured_card) {
+        if (sensor != 0 && can_place_card) {
             kpm_io_set_card_placed(true);
         }
 
         bool card_placed = kpm_io_is_card_placed();
         bool card_present = false;
 
-        if (card_placed && has_configured_card) {
-            card_present = true;
+        if (card_placed && can_place_card) {
+            uint8_t card_type = eam_io_read_card(0, uid, sizeof(uid));
+            if (card_type != EAM_IO_CARD_NONE) {
+                card_present = true;
+                kpm_card_type = (card_type == EAM_IO_CARD_FELICA) ? 1 : 0;
+            } else {
+                kpm_io_set_card_placed(false);
+            }
         } else {
-            if (card_placed && !has_configured_card) {
+            if (card_placed && !can_place_card) {
                 kpm_io_set_card_placed(false);
             }
             s_logged_card = false;

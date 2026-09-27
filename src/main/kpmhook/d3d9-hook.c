@@ -44,11 +44,24 @@ IDirect3DDevice9 *kpm_d3d9_get_device_proxy(void)
 static RECT s_station0_dest_rect = {0, 0, 1024, 768};
 static bool s_station0_dest_rect_valid = false;
 
+static RECT s_station1_dest_rect = {0, 0, 768, 1024};
+static bool s_station1_dest_rect_valid = false;
+
 bool kpm_d3d9_get_station0_dest_rect(RECT *rc)
 {
     if (!rc) return false;
     if (s_station0_dest_rect_valid) {
         *rc = s_station0_dest_rect;
+        return true;
+    }
+    return false;
+}
+
+bool kpm_d3d9_get_station1_dest_rect(RECT *rc)
+{
+    if (!rc) return false;
+    if (s_station1_dest_rect_valid) {
+        *rc = s_station1_dest_rect;
         return true;
     }
     return false;
@@ -518,6 +531,14 @@ static void present_station1_quad(IDirect3DDevice9 *real)
             }
             use_dest = &dst_rc;
         }
+    }
+
+    if (use_dest) {
+        s_station1_dest_rect = *use_dest;
+        s_station1_dest_rect_valid = true;
+    } else if (s_station1_target_wnd && GetClientRect(s_station1_target_wnd, &wnd_rc)) {
+        s_station1_dest_rect = wnd_rc;
+        s_station1_dest_rect_valid = true;
     }
 
     IDirect3DSwapChain9_Present(s_swapchain1, NULL, use_dest, NULL, NULL, 0);
