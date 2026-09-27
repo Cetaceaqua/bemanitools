@@ -27,7 +27,7 @@ jobs:
       - name: "Build KPM Toolchain"
         shell: cmd
         run: |
-          build_kpmhook_msvc.bat
+          call build_kpmhook_msvc.bat
 
       - name: "Upload artifact"
         uses: actions/upload-artifact@v4
