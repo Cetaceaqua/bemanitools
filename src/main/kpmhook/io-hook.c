@@ -11,6 +11,7 @@
 
 #include "bemanitools/kpmio.h"
 #include "kpmhook/config-io.h"
+#include "kpmhook/hook-util.h"
 #include "kpmhook/io-hook.h"
 #include "kpmhook/touch-hook.h"
 #include "util/log.h"
@@ -423,67 +424,92 @@ static void reset_game_idle_timers(void)
  * These hooks evaluate (Credit | Coin) so any un-transferred coins protect against timeout exit.
  */
 static const uintptr_t CONT_CHECK_FUNDS_1 = 0x00473690;
-static __declspec(naked) void hook_check_funds_1(void)
+static KPM_NAKED void hook_check_funds_1(void)
 {
+#if defined(_MSC_VER)
     __asm {
         mov eax, dword ptr ds:[0x00E652D4]
         mov edi, [eax+0x2578]   ; Credit
         or edi, [eax+0x2588]    ; Coin
         jmp dword ptr [CONT_CHECK_FUNDS_1]
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "mov eax, dword ptr ds:[0x00E652D4]\n\t"
+        "mov edi, [eax+0x2578]\n\t"
+        "or edi, [eax+0x2588]\n\t"
+        "push 0x00473690\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 static const uintptr_t CONT_CHECK_FUNDS_2 = 0x00473DC4;
-static __declspec(naked) void hook_check_funds_2(void)
+static KPM_NAKED void hook_check_funds_2(void)
 {
+#if defined(_MSC_VER)
     __asm {
         mov ecx, dword ptr ds:[0x00E652D4]
         mov edx, [ecx+0x2578]   ; Credit
         or edx, [ecx+0x2588]    ; Coin
         jmp dword ptr [CONT_CHECK_FUNDS_2]
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "mov ecx, dword ptr ds:[0x00E652D4]\n\t"
+        "mov edx, [ecx+0x2578]\n\t"
+        "or edx, [ecx+0x2588]\n\t"
+        "push 0x00473DC4\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 static const uintptr_t CONT_CHECK_FUNDS_3 = 0x004C4437;
-static __declspec(naked) void hook_check_funds_3(void)
+static KPM_NAKED void hook_check_funds_3(void)
 {
+#if defined(_MSC_VER)
     __asm {
         mov edx, dword ptr ds:[0x00E652D4]
         mov edi, [edx+0x2578]   ; Credit
         or edi, [edx+0x2588]    ; Coin
         jmp dword ptr [CONT_CHECK_FUNDS_3]
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "mov edx, dword ptr ds:[0x00E652D4]\n\t"
+        "mov edi, [edx+0x2578]\n\t"
+        "or edi, [edx+0x2588]\n\t"
+        "push 0x004C4437\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 static const uintptr_t SUB_5C93A0_CONT = 0x005C93AB;
 
+KPM_HELPER_DECL(void, my_sub_5C93A0_impl, (void));
 static void my_sub_5C93A0_impl(void)
 {
     log_info("sub_5C93A0 intercepted (pay stop ignored to protect active virtual hopper payout)");
 }
 
-static void my_sub_4232D0_impl(int a1, unsigned int code, int a3, int a4)
+static void __cdecl my_sub_4232D0(int a1, unsigned int code, int a3, int a4)
 {
     log_warning(
         "KPM Fatal Error suppressed by io-hook: code=0x%04X, a1=%d, a3=%d, a4=%d",
         code, a1, a3, a4);
 }
 
-static __declspec(naked) void my_sub_4232D0(void)
+static KPM_NAKED void my_sub_5C93A0(void)
 {
-    __asm {
-        push [esp+10h]  ; a4
-        push [esp+10h]  ; a3
-        push [esp+10h]  ; code
-        push [esp+10h]  ; a1
-        call my_sub_4232D0_impl
-        add esp, 16
-        ret
-    }
-}
-
-static __declspec(naked) void my_sub_5C93A0(void)
-{
+#if defined(_MSC_VER)
     __asm {
         pushad
         call my_sub_5C93A0_impl
@@ -495,6 +521,21 @@ static __declspec(naked) void my_sub_5C93A0(void)
         mov eax, dword ptr ds:[0x01ACFCB8]
         jmp dword ptr [SUB_5C93A0_CONT]
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "pushad\n\t"
+        "call my_sub_5C93A0_impl\n\t"
+        "popad\n\t"
+        "push ebp\n\t"
+        "mov ebp, esp\n\t"
+        "and esp, 0xFFFFFFF8\n\t"
+        "mov eax, dword ptr ds:[0x01ACFCB8]\n\t"
+        "push 0x005C93AB\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 static const char S_KONAMI_PCB_ID[] = "014014000003CCCBC50D";
@@ -612,36 +653,17 @@ static void init_ds2430a_dongles(void)
  * __thiscall calling convention (ECX = this, [esp+4] = buf, [esp+8] = max_len).
  * Returns `buf` on success, pops 8 bytes of stack arguments upon return.
  */
-static __declspec(naked) int my_sub_5CA870(void)
+static int __fastcall my_sub_5CA870(void *this_ptr, void *edx_unused, char *buf, unsigned int max_len)
 {
-    __asm {
-        mov eax, [esp+4]       ; char *buf
-        test eax, eax
-        jz _ret
-        mov ecx, [esp+8]       ; unsigned int max_len
-        test ecx, ecx
-        jz _ret
-        push esi
-        push edi
-        mov edi, eax
-        mov esi, offset S_KONAMI_PCB_ID
-_copy_loop:
-        dec ecx
-        jz _null_term
-        mov dl, [esi]
-        test dl, dl
-        jz _null_term
-        mov [edi], dl
-        inc esi
-        inc edi
-        jmp _copy_loop
-        _null_term:
-        mov byte ptr [edi], 0
-        pop edi
-        pop esi
-_ret:
-        ret 8
+    if (buf && max_len > 0) {
+        size_t id_len = strlen(S_KONAMI_PCB_ID);
+        if (id_len >= max_len) {
+            id_len = max_len - 1;
+        }
+        memcpy(buf, S_KONAMI_PCB_ID, id_len);
+        buf[id_len] = '\0';
     }
+    return (int) (uintptr_t) buf;
 }
 
 void kpm_io_hook_init(const struct kpmhook_config_io *cfg)

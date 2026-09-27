@@ -7,6 +7,7 @@
 #include <stdio.h>
 
 #include "kpmhook/camera-hook.h"
+#include "kpmhook/hook-util.h"
 #include "util/log.h"
 
 /* -------------------------------------------------------------------------
@@ -159,13 +160,15 @@ static void kpm_camera_enum_devices(void)
 static const uintptr_t SUB_41C730_ADDR = 0x0041C730;
 static const uintptr_t SUB_41C730_CONT = 0x0041C737;
 
+KPM_HELPER_DECL(void, log_camera_null_device, (void));
 static void log_camera_null_device(void)
 {
     log_info("CCameraDevice::SetWindow(0x0041C730): this (eax) is NULL (camera disabled or absent). Handled safely.");
 }
 
-static __declspec(naked) void sub_41C730_hook(void)
+static KPM_NAKED void sub_41C730_hook(void)
 {
+#if defined(_MSC_VER)
     __asm {
         test eax, eax
         jnz normal_path
@@ -182,6 +185,24 @@ static __declspec(naked) void sub_41C730_hook(void)
         add ecx, [esp + 4]
         jmp dword ptr [SUB_41C730_CONT]
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "test eax, eax\n\t"
+        "jnz 1f\n\t"
+        "pushad\n\t"
+        "call log_camera_null_device\n\t"
+        "popad\n\t"
+        "xor eax, eax\n\t"
+        "ret 8\n\t"
+        "1:\n\t"
+        "mov ecx, [eax + 0x44]\n\t"
+        "add ecx, [esp + 4]\n\t"
+        "push 0x0041C737\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 /* -------------------------------------------------------------------------
@@ -191,6 +212,7 @@ static __declspec(naked) void sub_41C730_hook(void)
 static const uintptr_t SUB_41CE30_ADDR = 0x0041CE30;
 static const uintptr_t SUB_41CE45_ADDR = 0x0041CE45;
 
+KPM_HELPER_DECL(void, my_camera_wait_first_frame, (void *sample_grabber, long *p_buf_size, void *cam_this));
 static void my_camera_wait_first_frame(void *sample_grabber, long *p_buf_size, void *cam_this)
 {
     if (!sample_grabber || !p_buf_size) return;
@@ -218,8 +240,9 @@ static void my_camera_wait_first_frame(void *sample_grabber, long *p_buf_size, v
     }
 }
 
-static __declspec(naked) void sub_41ce30_hook(void)
+static KPM_NAKED void sub_41ce30_hook(void)
 {
+#if defined(_MSC_VER)
     __asm {
         mov eax, [ebx]          // ISampleGrabber pointer
         lea edi, [esi + 0x1C]   // &this->m_buffer_size
@@ -232,6 +255,23 @@ static __declspec(naked) void sub_41ce30_hook(void)
         popad
         jmp dword ptr [SUB_41CE45_ADDR]
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "mov eax, [ebx]\n\t"
+        "lea edi, [esi + 0x1C]\n\t"
+        "pushad\n\t"
+        "push esi\n\t"
+        "push edi\n\t"
+        "push eax\n\t"
+        "call my_camera_wait_first_frame\n\t"
+        "add esp, 12\n\t"
+        "popad\n\t"
+        "push 0x0041CE45\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 /* -------------------------------------------------------------------------
@@ -242,13 +282,15 @@ static const uintptr_t SUB_41D3E9_ADDR = 0x0041D3E9;
 static const uintptr_t SUB_41D3E9_CONT = 0x0041D3F1;
 static const uintptr_t SUB_41D3E9_EXIT = 0x0041D428;
 
+KPM_HELPER_DECL(void, log_camera_thread_null_grabber, (void));
 static void log_camera_thread_null_grabber(void)
 {
     log_warning("CCameraDevice::ThreadProc (0x0041D3E9): ISampleGrabber is NULL; exiting thread safely.");
 }
 
-static __declspec(naked) void sub_41d3e9_hook(void)
+static KPM_NAKED void sub_41d3e9_hook(void)
 {
+#if defined(_MSC_VER)
     __asm {
         mov eax, [esi + 0x4C]   // ISampleGrabber pointer
         test eax, eax
@@ -264,6 +306,25 @@ static __declspec(naked) void sub_41d3e9_hook(void)
         popad
         jmp dword ptr [SUB_41D3E9_EXIT]
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "mov eax, [esi + 0x4C]\n\t"
+        "test eax, eax\n\t"
+        "jz 1f\n\t"
+        "mov ecx, [eax]\n\t"
+        "mov edx, [ecx + 0x18]\n\t"
+        "push 0x0041D3F1\n\t"
+        "ret\n\t"
+        "1:\n\t"
+        "pushad\n\t"
+        "call log_camera_thread_null_grabber\n\t"
+        "popad\n\t"
+        "push 0x0041D428\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 /* -------------------------------------------------------------------------
@@ -276,8 +337,15 @@ static const uintptr_t SUB_41D43A_ADDR = 0x0041D43A;
 static const uintptr_t SUB_41D3E2_ADDR = 0x0041D3E2;
 static const uintptr_t SUB_41D428_ADDR = 0x0041D428;
 
-static __declspec(naked) void sub_41d415_hook(void)
+KPM_HELPER_DECL(void, my_camera_sleep_5, (void));
+static void my_camera_sleep_5(void)
 {
+    Sleep(5);
+}
+
+static KPM_NAKED void sub_41d415_hook(void)
+{
+#if defined(_MSC_VER)
     __asm {
         test eax, eax
         jz frame_ok
@@ -298,6 +366,25 @@ static __declspec(naked) void sub_41d415_hook(void)
     frame_ok:
         jmp dword ptr [SUB_41D43A_ADDR]
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "test eax, eax\n\t"
+        "jz 1f\n\t"
+        "cmp byte ptr [esi + 0x3C], 0\n\t"
+        "jnz 2f\n\t"
+        "call my_camera_sleep_5\n\t"
+        "push 0x0041D3E2\n\t"
+        "ret\n\t"
+        "2:\n\t"
+        "push 0x0041D428\n\t"
+        "ret\n\t"
+        "1:\n\t"
+        "push 0x0041D43A\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 /* -------------------------------------------------------------------------
@@ -308,6 +395,7 @@ static __declspec(naked) void sub_41d415_hook(void)
 static const uintptr_t SUB_41D44C_ADDR = 0x0041D44C;
 static const uintptr_t SUB_41D62C_CONT = 0x0041D62C;
 
+KPM_HELPER_DECL(void, kpm_camera_copy_frame, (void *cam_this));
 static void kpm_camera_copy_frame(void *cam_this)
 {
     uint8_t *cam = (uint8_t *) cam_this;
@@ -348,8 +436,9 @@ static void kpm_camera_copy_frame(void *cam_this)
     }
 }
 
-static __declspec(naked) void sub_41d44c_hook(void)
+static KPM_NAKED void sub_41d44c_hook(void)
 {
+#if defined(_MSC_VER)
     __asm {
         pushad
         push esi                // CCameraDevice*
@@ -360,6 +449,20 @@ static __declspec(naked) void sub_41d44c_hook(void)
         xor ebx, ebx            // Restore ebx = 0 for cmp [esi+78h], bl
         jmp dword ptr [SUB_41D62C_CONT]
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "pushad\n\t"
+        "push esi\n\t"
+        "call kpm_camera_copy_frame\n\t"
+        "add esp, 4\n\t"
+        "popad\n\t"
+        "xor ebx, ebx\n\t"
+        "push 0x0041D62C\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 /* -------------------------------------------------------------------------

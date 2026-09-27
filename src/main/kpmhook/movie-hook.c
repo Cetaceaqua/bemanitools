@@ -9,6 +9,7 @@
 
 #include "kpmhook/config-io.h"
 #include "kpmhook/d3d9-hook.h"
+#include "kpmhook/hook-util.h"
 #include "kpmhook/movie-hook.h"
 #include "kpmhook/path-hook.h"
 #include "util/log.h"
@@ -38,20 +39,12 @@ static void patch_call(uintptr_t call_site, const void *target_func)
     patch_memory(call_site, call_bytes, sizeof(call_bytes));
 }
 
+typedef char (__fastcall *wmv_open_fn)(void *this_ptr, void *edx_unused, const wchar_t *pszFileName, int a3, int a4, int a5);
+
 static char call_real_wmv_open(void *this_ptr, const wchar_t *pszFileName, int a3, int a4, int a5)
 {
-    char result;
-    __asm {
-        mov ecx, this_ptr
-        push a5
-        push a4
-        push a3
-        push pszFileName
-        mov eax, 0x005C68E0
-        call eax
-        mov result, al
-    }
-    return result;
+    wmv_open_fn fn = (wmv_open_fn) 0x005C68E0;
+    return fn(this_ptr, NULL, pszFileName, a3, a4, a5);
 }
 
 static char __cdecl my_wmv_open_impl(void *this_ptr, const wchar_t *pszFileName, int a3, int a4, int a5)
@@ -116,41 +109,22 @@ static char __cdecl my_wmv_open_impl(void *this_ptr, const wchar_t *pszFileName,
     return res;
 }
 
-
-static __declspec(naked) void my_wmv_open_thunk(void)
+static char __fastcall my_wmv_open_thunk(void *this_ptr, void *edx_unused, const wchar_t *pszFileName, int a3, int a4, int a5)
 {
-    __asm {
-        push ebp
-        mov ebp, esp
-        push [ebp + 20] // a5
-        push [ebp + 16] // a4
-        push [ebp + 12] // a3
-        push [ebp + 8]  // pszFileName
-        push ecx        // this_ptr
-        call my_wmv_open_impl
-        add esp, 20
-        mov esp, ebp
-        pop ebp
-        ret 16
-    }
+    return my_wmv_open_impl(this_ptr, pszFileName, a3, a4, a5);
 }
+
+typedef uint8_t (__fastcall *is_playing_fn)(void *this_ptr, void *edx_unused);
 
 static uint8_t call_is_playing(void *this_ptr)
 {
-    uint8_t res = 0;
     uint32_t *vtable = *(uint32_t **)this_ptr;
-    uint32_t fn;
-
     if (!vtable) return 0;
-    fn = vtable[9]; // index 9 = offset 36 (0x24)
-    __asm {
-        mov ecx, this_ptr
-        call fn
-        mov res, al
-    }
-    return res;
+    is_playing_fn fn = (is_playing_fn) vtable[9]; // index 9 = offset 36 (0x24)
+    return fn(this_ptr, NULL);
 }
 
+KPM_HELPER_DECL(char, my_check_movie_ready, (uint8_t *movie_ctrl));
 static char __cdecl my_check_movie_ready(uint8_t *movie_ctrl)
 {
     if (!movie_ctrl) {
@@ -205,8 +179,9 @@ static char __cdecl my_check_movie_ready(uint8_t *movie_ctrl)
     return 0;
 }
 
-static __declspec(naked) void my_movie_ready_thunk(void)
+static KPM_NAKED void my_movie_ready_thunk(void)
 {
+#if defined(_MSC_VER)
     __asm {
         push ebp
         mov ebp, esp
@@ -217,8 +192,23 @@ static __declspec(naked) void my_movie_ready_thunk(void)
         pop ebp
         ret
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "push ebp\n\t"
+        "mov ebp, esp\n\t"
+        "push esi\n\t"
+        "call my_check_movie_ready\n\t"
+        "add esp, 4\n\t"
+        "mov esp, ebp\n\t"
+        "pop ebp\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
+KPM_HELPER_DECL(bool, my_step14_check_movie, (int char_idx));
 static bool my_step14_check_movie(int char_idx)
 {
     if (!s_play_movie) {
@@ -227,23 +217,48 @@ static bool my_step14_check_movie(int char_idx)
     }
 
     bool res = false;
+#if defined(_MSC_VER)
     __asm {
         mov esi, char_idx
         mov eax, 0x00542C90
         call eax
         mov res, al
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "mov esi, %1\n\t"
+        "mov eax, 0x00542C90\n\t"
+        "call eax\n\t"
+        "mov %0, al\n\t"
+        ".att_syntax prefix\n\t"
+        : "=m"(res)
+        : "m"(char_idx)
+        : "eax", "esi"
+    );
+#endif
     return res;
 }
 
-static __declspec(naked) void my_step14_check_movie_thunk(void)
+static KPM_NAKED void my_step14_check_movie_thunk(void)
 {
+#if defined(_MSC_VER)
     __asm {
         push esi
         call my_step14_check_movie
         add esp, 4
         ret
     }
+#elif defined(__GNUC__)
+    __asm__ __volatile__(
+        ".intel_syntax noprefix\n\t"
+        "push esi\n\t"
+        "call my_step14_check_movie\n\t"
+        "add esp, 4\n\t"
+        "ret\n\t"
+        ".att_syntax prefix\n\t"
+    );
+#endif
 }
 
 void kpm_movie_hook_init(const struct kpmhook_config_io *cfg)
