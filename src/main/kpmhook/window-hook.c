@@ -409,17 +409,20 @@ static void subclass_game_window(HWND hWnd, const char *desc)
     SetClassLongPtrW(hWnd, GCLP_HCURSOR, (LONG_PTR) LoadCursor(NULL, IDC_ARROW));
     SetCursor(LoadCursor(NULL, IDC_ARROW));
 
-    /* Disable Windows 11 borders and rounded corners */
-    HMODULE dwm = GetModuleHandleA("dwmapi.dll");
-    if (!dwm) dwm = LoadLibraryA("dwmapi.dll");
-    if (dwm) {
-        typedef HRESULT (WINAPI *pfn_DwmSetWindowAttribute)(HWND, DWORD, LPCVOID, DWORD);
-        pfn_DwmSetWindowAttribute pDwm = (pfn_DwmSetWindowAttribute) GetProcAddress(dwm, "DwmSetWindowAttribute");
-        if (pDwm) {
-            DWORD corner = 1; /* DWMWCP_DONOTROUND */
-            pDwm(hWnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &corner, sizeof(corner));
-            COLORREF border = 0xFFFFFFFE; /* DWMWA_COLOR_NONE */
-            pDwm(hWnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof(border));
+    /* In fullscreen mode, disable Windows 11 borders and rounded corners to eliminate white border artifacts.
+     * In windowed mode, preserve standard Windows 11 rounded corners. */
+    if (!s_windowed) {
+        HMODULE dwm = GetModuleHandleA("dwmapi.dll");
+        if (!dwm) dwm = LoadLibraryA("dwmapi.dll");
+        if (dwm) {
+            typedef HRESULT (WINAPI *pfn_DwmSetWindowAttribute)(HWND, DWORD, LPCVOID, DWORD);
+            pfn_DwmSetWindowAttribute pDwm = (pfn_DwmSetWindowAttribute) GetProcAddress(dwm, "DwmSetWindowAttribute");
+            if (pDwm) {
+                DWORD corner = 1; /* DWMWCP_DONOTROUND */
+                pDwm(hWnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &corner, sizeof(corner));
+                COLORREF border = 0xFFFFFFFE; /* DWMWA_COLOR_NONE */
+                pDwm(hWnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof(border));
+            }
         }
     }
 }

@@ -514,8 +514,22 @@ static void load_ds2430a_dongle(
     const uint8_t *default_payload)
 {
     FILE *f = fopen(primary_filename, "rb");
+    const char *loaded_path = primary_filename;
     if (!f && secondary_filename) {
         f = fopen(secondary_filename, "rb");
+        if (f) loaded_path = secondary_filename;
+    }
+    char exe_dir_file[MAX_PATH];
+    if (!f) {
+        GetModuleFileNameA(NULL, exe_dir_file, sizeof(exe_dir_file));
+        char *sep = strrchr(exe_dir_file, '\\');
+        if (!sep) sep = strrchr(exe_dir_file, '/');
+        if (sep) {
+            *sep = '\0';
+            _snprintf(exe_dir_file + strlen(exe_dir_file), sizeof(exe_dir_file) - strlen(exe_dir_file), "\\%s", primary_filename);
+            f = fopen(exe_dir_file, "rb");
+            if (f) loaded_path = exe_dir_file;
+        }
     }
 
     if (f) {
@@ -532,7 +546,7 @@ static void load_ds2430a_dongle(
                 memcpy(out_dongle->rom_id, &buf[32], 8);
                 log_info(
                     "Loaded DS2430A dongle from %s (MAME layout, ROM ID: %02X%02X%02X%02X%02X%02X%02X%02X)",
-                    primary_filename,
+                    loaded_path,
                     out_dongle->rom_id[0], out_dongle->rom_id[1], out_dongle->rom_id[2], out_dongle->rom_id[3],
                     out_dongle->rom_id[4], out_dongle->rom_id[5], out_dongle->rom_id[6], out_dongle->rom_id[7]);
                 return;
@@ -541,7 +555,7 @@ static void load_ds2430a_dongle(
                 memcpy(out_dongle->payload, &buf[8], 32);
                 log_info(
                     "Loaded DS2430A dongle from %s (Legacy layout, ROM ID: %02X%02X%02X%02X%02X%02X%02X%02X)",
-                    primary_filename,
+                    loaded_path,
                     out_dongle->rom_id[0], out_dongle->rom_id[1], out_dongle->rom_id[2], out_dongle->rom_id[3],
                     out_dongle->rom_id[4], out_dongle->rom_id[5], out_dongle->rom_id[6], out_dongle->rom_id[7]);
                 return;
