@@ -20,6 +20,7 @@ static bool s_coin_key_last = false;
 static DWORD s_coin_press_start_tick = 0;
 static DWORD s_coin_last_repeat_tick = 0;
 
+static bool s_card_available = false;
 static bool s_card_placed = false;
 static bool s_insert_card_last = false;
 static bool s_eject_card_last = false;
@@ -64,6 +65,7 @@ bool kpm_io_init(
     s_coin_key_last = false;
     s_coin_press_start_tick = 0;
     s_coin_last_repeat_tick = 0;
+    s_card_available = false;
     s_card_placed = false;
     s_insert_card_last = false;
     s_eject_card_last = false;
@@ -145,17 +147,14 @@ bool kpm_io_read_inputs(void)
     /* Insert Card: mapped bit 11 */
     bool insert_key = (pack & (1ULL << 11)) != 0;
     if (insert_key && !s_insert_card_last) {
-        FILE *f = fopen("card0.txt", "r");
-        if (!f) f = fopen("card.txt", "r");
-        if (f) {
-            fclose(f);
+        if (s_card_available) {
             s_card_placed = true;
             if (s_log_info) {
                 s_log_info("kpmio", "Card PLACED on reader tray (config mapped key)");
             }
         } else {
             if (s_log_info) {
-                s_log_info("kpmio", "Insert card key ignored: no card0.txt or card.txt configured");
+                s_log_info("kpmio", "Insert card key ignored: no valid card configured in Config");
             }
         }
     }
@@ -303,7 +302,19 @@ bool kpm_io_is_card_placed(void)
 
 void kpm_io_set_card_placed(bool placed)
 {
+    if (placed && !s_card_available) {
+        s_card_placed = false;
+        return;
+    }
     s_card_placed = placed;
+}
+
+void kpm_io_set_card_available(bool available)
+{
+    s_card_available = available;
+    if (!available) {
+        s_card_placed = false;
+    }
 }
 
 

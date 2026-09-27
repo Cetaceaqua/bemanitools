@@ -157,4 +157,9 @@ bool kpm_io_is_card_placed(void);
  */
 void kpm_io_set_card_placed(bool placed);
 
+/**
+ * Update whether a valid card file is configured in Config.
+ */
+void kpm_io_set_card_available(bool available);
+
 #endif /* BEMANITOOLS_KPMIO_H */
