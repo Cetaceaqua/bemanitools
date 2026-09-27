@@ -4,11 +4,13 @@
 #include "kpmhook/config-gfx.h"
 #include "util/log.h"
 
-#define KPMHOOK_CONFIG_GFX_WINDOWED_KEY "gfx.windowed"
-#define KPMHOOK_CONFIG_GFX_ROTATE_KEY   "gfx.rotate"
+#define KPMHOOK_CONFIG_GFX_WINDOWED_KEY   "gfx.windowed"
+#define KPMHOOK_CONFIG_GFX_ROTATE_KEY     "gfx.rotate"
+#define KPMHOOK_CONFIG_GFX_SUB_SCREEN_KEY "gfx.sub_screen"
 
-#define KPMHOOK_CONFIG_GFX_DEFAULT_WINDOWED_VALUE true
-#define KPMHOOK_CONFIG_GFX_DEFAULT_ROTATE_VALUE   true
+#define KPMHOOK_CONFIG_GFX_DEFAULT_WINDOWED_VALUE   true
+#define KPMHOOK_CONFIG_GFX_DEFAULT_ROTATE_VALUE     true
+#define KPMHOOK_CONFIG_GFX_DEFAULT_SUB_SCREEN_VALUE true
 
 void kpmhook_config_gfx_init(struct cconfig *config)
 {
@@ -23,6 +25,12 @@ void kpmhook_config_gfx_init(struct cconfig *config)
         KPMHOOK_CONFIG_GFX_ROTATE_KEY,
         KPMHOOK_CONFIG_GFX_DEFAULT_ROTATE_VALUE,
         "Rotate sub-screen 90 degrees counter-clockwise (portrait 768x1024)");
+
+    cconfig_util_set_bool(
+        config,
+        KPMHOOK_CONFIG_GFX_SUB_SCREEN_KEY,
+        KPMHOOK_CONFIG_GFX_DEFAULT_SUB_SCREEN_VALUE,
+        "Enable Station 1 sub-screen (true: dual screens, false: single screen only)");
 }
 
 void kpmhook_config_gfx_get(
@@ -48,5 +56,16 @@ void kpmhook_config_gfx_get(
             "Invalid value for key '%s' specified, fallback to default '%d'",
             KPMHOOK_CONFIG_GFX_ROTATE_KEY,
             KPMHOOK_CONFIG_GFX_DEFAULT_ROTATE_VALUE);
+    }
+
+    if (!cconfig_util_get_bool(
+            config,
+            KPMHOOK_CONFIG_GFX_SUB_SCREEN_KEY,
+            &config_gfx->sub_screen,
+            KPMHOOK_CONFIG_GFX_DEFAULT_SUB_SCREEN_VALUE)) {
+        log_warning(
+            "Invalid value for key '%s' specified, fallback to default '%d'",
+            KPMHOOK_CONFIG_GFX_SUB_SCREEN_KEY,
+            KPMHOOK_CONFIG_GFX_DEFAULT_SUB_SCREEN_VALUE);
     }
 }

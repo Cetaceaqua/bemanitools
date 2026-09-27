@@ -8,6 +8,7 @@
 #include "kpmhook/config-kpm.h"
 #include "kpmhook/window-hook.h"
 #include "kpmhook/io-hook.h"
+#include "kpmhook/d3d9-hook.h"
 #include "util/defs.h"
 #include "util/log.h"
 
@@ -84,11 +85,21 @@ static void query_monitors(RECT *rc_main, RECT *rc_sub)
     }
 
     /* Station 1 gets the first non-primary monitor */
+    bool found_sub = false;
     for (int i = 0; i < s_mon_count; i++) {
         if (i != primary_idx) {
             *rc_sub = s_mons[i].rc;
+            found_sub = true;
             break;
         }
+    }
+
+    if (!found_sub) {
+        /* Single monitor setup: place sub-screen offscreen so it never overlaps main screen */
+        rc_sub->left = -10000;
+        rc_sub->top = -10000;
+        rc_sub->right = -9999;
+        rc_sub->bottom = -9999;
     }
 
     static bool s_logged = false;
@@ -190,40 +201,62 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
 
     switch (Msg) {
         /* Forward mouse events to Elo touch virtualizer ONLY for Station 0 (Main Screen) */
-        case WM_LBUTTONDOWN: {
-            if (hWnd == s_station0_hwnd) {
-                RECT rc;
-                GetClientRect(hWnd, &rc);
-                int cw = rc.right - rc.left;
-                int ch = rc.bottom - rc.top;
-                kpm_touch_post_event(0, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 1);
-                SetCapture(hWnd);
-            }
-            break;
-        }
-
-        case WM_MOUSEMOVE: {
-            if ((wParam & MK_LBUTTON) && (hWnd == s_station0_hwnd)) {
-                RECT rc;
-                GetClientRect(hWnd, &rc);
-                int cw = rc.right - rc.left;
-                int ch = rc.bottom - rc.top;
-                kpm_touch_post_event(0, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 2);
-            }
-            break;
-        }
-
+        case WM_LBUTTONDOWN:
+        case WM_MOUSEMOVE:
         case WM_LBUTTONUP: {
             if (hWnd == s_station0_hwnd) {
-                RECT rc;
-                GetClientRect(hWnd, &rc);
-                int cw = rc.right - rc.left;
-                int ch = rc.bottom - rc.top;
-                kpm_touch_post_event(0, (short) LOWORD(lParam), (short) HIWORD(lParam), cw, ch, 4);
-                ReleaseCapture();
+                int type = (Msg == WM_LBUTTONDOWN) ? 1 : ((Msg == WM_MOUSEMOVE) ? 2 : 4);
+                if (type == 2 && !(wParam & MK_LBUTTON)) {
+                    break;
+                }
+
+                RECT dest_rc;
+                int ox = 0, oy = 0, cw, ch;
+                if (kpm_d3d9_get_station0_dest_rect(&dest_rc)) {
+                    ox = dest_rc.left;
+                    oy = dest_rc.top;
+                    cw = dest_rc.right - dest_rc.left;
+                    ch = dest_rc.bottom - dest_rc.top;
+                } else {
+                    RECT rc;
+                    GetClientRect(hWnd, &rc);
+                    cw = rc.right - rc.left;
+                    ch = rc.bottom - rc.top;
+                }
+
+                int mx = (short) LOWORD(lParam);
+                int my = (short) HIWORD(lParam);
+
+                int rel_x = mx - ox;
+                int rel_y = my - oy;
+                if (rel_x < 0) rel_x = 0;
+                if (rel_x > cw) rel_x = cw;
+                if (rel_y < 0) rel_y = 0;
+                if (rel_y > ch) rel_y = ch;
+
+                if (type == 1) SetCapture(hWnd);
+                if (type == 4) ReleaseCapture();
+
+                kpm_touch_post_event(0, rel_x, rel_y, cw, ch, type);
             }
             break;
         }
+
+        /* Suppress background erasing to avoid white flashes or border artifacts */
+        case WM_ERASEBKGND:
+            return 1;
+
+        /* Suppress non-client painting in fullscreen to remove any Windows 11 border */
+        case WM_NCPAINT:
+            if (!s_windowed) return 0;
+            break;
+
+        /* Ensure 0-pixel non-client area in fullscreen mode */
+        case WM_NCCALCSIZE:
+            if (!s_windowed && wParam) {
+                return 0;
+            }
+            break;
 
         /* Allow Windows to process non-client clicks for dragging, title bar buttons, menus */
         case WM_NCLBUTTONDOWN:
@@ -274,6 +307,23 @@ static void subclass_game_window(HWND hWnd, const char *desc)
         SetPropW(hWnd, L"KPM_ORIG_WNDPROC", (HANDLE) old_proc);
         SetWindowLongPtrW(hWnd, GWLP_WNDPROC, (LONG_PTR) kpm_wnd_proc);
         log_info("Subclassed %s (hWnd=0x%p, orig=0x%p)", desc, hWnd, old_proc);
+    }
+
+    /* Force black background brush to prevent white flashes or borders */
+    SetClassLongPtrW(hWnd, GCLP_HBRBACKGROUND, (LONG_PTR) GetStockObject(BLACK_BRUSH));
+
+    /* Disable Windows 11 borders and rounded corners */
+    HMODULE dwm = GetModuleHandleA("dwmapi.dll");
+    if (!dwm) dwm = LoadLibraryA("dwmapi.dll");
+    if (dwm) {
+        typedef HRESULT (WINAPI *pfn_DwmSetWindowAttribute)(HWND, DWORD, LPCVOID, DWORD);
+        pfn_DwmSetWindowAttribute pDwm = (pfn_DwmSetWindowAttribute) GetProcAddress(dwm, "DwmSetWindowAttribute");
+        if (pDwm) {
+            DWORD corner = 1; /* DWMWCP_DONOTROUND */
+            pDwm(hWnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &corner, sizeof(corner));
+            COLORREF border = 0xFFFFFFFE; /* DWMWA_COLOR_NONE */
+            pDwm(hWnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof(border));
+        }
     }
 }
 
@@ -326,7 +376,7 @@ static HWND WINAPI my_CreateWindowExW(
             query_monitors(&rc_main, &rc_sub);
 
             dwStyle = WS_POPUP | WS_VISIBLE;
-            dwExStyle &= ~WS_EX_TOPMOST;
+            dwExStyle = 0; /* Strip all window borders and extended edge styles */
             X = rc_main.left;
             Y = rc_main.top;
             nWidth = rc_main.right - rc_main.left;
@@ -336,6 +386,19 @@ static HWND WINAPI my_CreateWindowExW(
     } else if (is_sub) {
         log_info("CreateWindowExW: Station 1 (Sub Screen) orig style=0x%08lx ex=0x%08lx size=%dx%d",
                  dwStyle, dwExStyle, nWidth, nHeight);
+
+        if (!kpm_config_get_sub_screen()) {
+            log_info("CreateWindowExW: Station 1 disabled by configuration (gfx.sub_screen=false)");
+            /* Create hidden dummy window offscreen for Direct3D9 initialization requirements */
+            HWND hWnd = real_CreateWindowExW(
+                0, lpClassName, L"KPM Sub Screen (Hidden)", WS_POPUP,
+                -10000, -10000, 1, 1, hWndParent, hMenu, hInstance, lpParam);
+            if (hWnd) {
+                s_station1_hwnd = hWnd;
+                ShowWindow(hWnd, SW_HIDE);
+            }
+            return hWnd;
+        }
 
         lpWindowName = L"KPM Sub Screen";
 
@@ -359,7 +422,7 @@ static HWND WINAPI my_CreateWindowExW(
             query_monitors(&rc_main, &rc_sub);
 
             dwStyle = WS_POPUP | WS_VISIBLE;
-            dwExStyle &= ~WS_EX_TOPMOST;
+            dwExStyle = 0; /* Strip all window borders and extended edge styles */
             X = rc_sub.left;
             Y = rc_sub.top;
             nWidth = rc_sub.right - rc_sub.left;
@@ -411,6 +474,10 @@ static BOOL WINAPI my_SetWindowPos(
     /* Never allow topmost */
     if (hWndInsertAfter == HWND_TOPMOST) {
         hWndInsertAfter = HWND_NOTOPMOST;
+    }
+
+    if (hWnd == s_station1_hwnd && !kpm_config_get_sub_screen()) {
+        return real_SetWindowPos(hWnd, HWND_BOTTOM, -10000, -10000, 1, 1, SWP_NOACTIVATE | SWP_HIDEWINDOW);
     }
 
     if (!s_windowed) {
@@ -501,15 +568,24 @@ static BOOL WINAPI my_GetCursorPos(LPPOINT lpPoint)
         /* Convert virtual desktop screen coordinates to Station 0 client coordinates */
         ScreenToClient(s_station0_hwnd, lpPoint);
 
-        /* Scale client coordinates to Station 0 native resolution 1024x768 */
-        RECT rc;
-        GetClientRect(s_station0_hwnd, &rc);
-        int cw = rc.right - rc.left;
-        int ch = rc.bottom - rc.top;
+        RECT dest_rc;
+        int ox = 0, oy = 0, cw, ch;
+        if (kpm_d3d9_get_station0_dest_rect(&dest_rc)) {
+            ox = dest_rc.left;
+            oy = dest_rc.top;
+            cw = dest_rc.right - dest_rc.left;
+            ch = dest_rc.bottom - dest_rc.top;
+        } else {
+            RECT rc;
+            GetClientRect(s_station0_hwnd, &rc);
+            cw = rc.right - rc.left;
+            ch = rc.bottom - rc.top;
+        }
 
+        /* Scale client coordinates relative to 4:3 viewport to Station 0 native resolution 1024x768 */
         if (cw > 0 && ch > 0) {
-            lpPoint->x = (LONG) (((int64_t) lpPoint->x * 1024) / cw);
-            lpPoint->y = (LONG) (((int64_t) lpPoint->y * 768) / ch);
+            lpPoint->x = (LONG) (((int64_t) (lpPoint->x - ox) * 1024) / cw);
+            lpPoint->y = (LONG) (((int64_t) (lpPoint->y - oy) * 768) / ch);
         }
 
         if (lpPoint->x < 0) {

@@ -17,4 +17,9 @@ void kpm_config_bootstrap(const struct kpmhook_config_gfx *gfx_cfg);
  */
 bool kpm_config_get_rotate(void);
 
+/**
+ * Check if sub-screen (Station 1) is enabled.
+ */
+bool kpm_config_get_sub_screen(void);
+
 #endif /* KPMHOOK_CONFIG_KPM_H */

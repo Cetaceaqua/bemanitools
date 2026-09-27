@@ -11,6 +11,7 @@
 struct kpmhook_config_gfx {
     bool windowed;
     bool rotate;
+    bool sub_screen;
 };
 
 /**

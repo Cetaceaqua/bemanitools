@@ -10,6 +10,7 @@
 #include "util/log.h"
 
 static int s_rotate = 1;
+static int s_sub_screen = 1;
 
 void kpm_config_bootstrap(const struct kpmhook_config_gfx *gfx_cfg)
 {
@@ -19,6 +20,7 @@ void kpm_config_bootstrap(const struct kpmhook_config_gfx *gfx_cfg)
 
     if (gfx_cfg) {
         s_rotate = gfx_cfg->rotate ? 1 : 0;
+        s_sub_screen = gfx_cfg->sub_screen ? 1 : 0;
     }
 
     GetModuleFileNameA(NULL, root, sizeof(root));
@@ -44,4 +46,9 @@ void kpm_config_bootstrap(const struct kpmhook_config_gfx *gfx_cfg)
 bool kpm_config_get_rotate(void)
 {
     return s_rotate != 0;
+}
+
+bool kpm_config_get_sub_screen(void)
+{
+    return s_sub_screen != 0;
 }

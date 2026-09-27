@@ -41,6 +41,19 @@ IDirect3DDevice9 *kpm_d3d9_get_device_proxy(void)
     return s_dev_proxy;
 }
 
+static RECT s_station0_dest_rect = {0, 0, 1024, 768};
+static bool s_station0_dest_rect_valid = false;
+
+bool kpm_d3d9_get_station0_dest_rect(RECT *rc)
+{
+    if (!rc) return false;
+    if (s_station0_dest_rect_valid) {
+        *rc = s_station0_dest_rect;
+        return true;
+    }
+    return false;
+}
+
 /* {694036AC-542A-4A3A-9A32-53BC20002C1B} */
 static const GUID IID_IDirect3DVideoDevice9_local =
     { 0x694036AC, 0x542A, 0x4A3A, { 0x9A, 0x32, 0x53, 0xBC, 0x20, 0x00, 0x2C, 0x1B } };
@@ -318,6 +331,11 @@ static void init_rotation_resources(IDirect3DDevice9 *real, UINT backbuf_w, UINT
 {
     release_rotation_resources();
 
+    if (!kpm_config_get_sub_screen()) {
+        log_info("Sub-screen disabled by configuration; skipping Station 1 swapchain setup");
+        return;
+    }
+
     /* Create Station 1 1024x768 render target texture so game renders directly to it */
     HRESULT hr = IDirect3DDevice9_CreateTexture(
         real, backbuf_w, backbuf_h, 1,
@@ -468,7 +486,41 @@ static void present_station1_quad(IDirect3DDevice9 *real)
 
     IDirect3DSurface9_Release(sc1_bb);
 
-    IDirect3DSwapChain9_Present(s_swapchain1, NULL, NULL, NULL, NULL, 0);
+    /* Compute aspect-ratio preserved destination rectangle for Station 1 */
+    RECT wnd_rc;
+    RECT dst_rc;
+    const RECT *use_dest = NULL;
+    if (s_station1_target_wnd && GetClientRect(s_station1_target_wnd, &wnd_rc)) {
+        int w = wnd_rc.right - wnd_rc.left;
+        int h = wnd_rc.bottom - wnd_rc.top;
+        if (w > 0 && h > 0) {
+            int target_w = s_rotate_sub ? 3 : 4;
+            int target_h = s_rotate_sub ? 4 : 3;
+
+            if ((int64_t) w * target_h > (int64_t) h * target_w) {
+                /* Screen is wider than target aspect ratio: pillarbox (black bars on left/right) */
+                int dst_w = (int) (((int64_t) h * target_w) / target_h);
+                int dst_h = h;
+                int dst_x = (w - dst_w) / 2;
+                dst_rc.left = dst_x;
+                dst_rc.top = 0;
+                dst_rc.right = dst_x + dst_w;
+                dst_rc.bottom = dst_h;
+            } else {
+                /* Screen is taller than target aspect ratio: letterbox (black bars on top/bottom) */
+                int dst_w = w;
+                int dst_h = (int) (((int64_t) w * target_h) / target_w);
+                int dst_y = (h - dst_h) / 2;
+                dst_rc.left = 0;
+                dst_rc.top = dst_y;
+                dst_rc.right = dst_w;
+                dst_rc.bottom = dst_y + dst_h;
+            }
+            use_dest = &dst_rc;
+        }
+    }
+
+    IDirect3DSwapChain9_Present(s_swapchain1, NULL, use_dest, NULL, NULL, 0);
 }
 
 static HRESULT STDMETHODCALLTYPE my_GetDeviceCaps(
@@ -660,13 +712,49 @@ static HRESULT STDMETHODCALLTYPE my_Present(
     /* Update arcade inputs and PCSub simulation */
     kpm_io_hook_update();
 
-    /* Present Station 1 (Sub Screen) */
-    if (s_has_dual_station) {
+    /* Present Station 1 (Sub Screen) if enabled */
+    if (s_has_dual_station && kpm_config_get_sub_screen()) {
         present_station1_quad(real);
     }
 
-    /* Present Station 0 (Main Screen) natively */
-    return IDirect3DDevice9_Present(real, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
+    /* Compute 4:3 aspect-ratio preserved destination rectangle for Station 0 */
+    HWND target_wnd = hDestWindowOverride ? hDestWindowOverride : s_station0_target_wnd;
+    RECT wnd_rc;
+    RECT calc_dest;
+    const RECT *use_dest = pDestRect;
+
+    if (target_wnd && GetClientRect(target_wnd, &wnd_rc)) {
+        int w = wnd_rc.right - wnd_rc.left;
+        int h = wnd_rc.bottom - wnd_rc.top;
+        if (w > 0 && h > 0) {
+            /* 4:3 aspect ratio calculation */
+            if ((int64_t) w * 3 > (int64_t) h * 4) {
+                /* Screen is wider than 4:3: pillarbox (black bars on left/right) */
+                int dst_w = (int) (((int64_t) h * 4) / 3);
+                int dst_h = h;
+                int dst_x = (w - dst_w) / 2;
+                calc_dest.left = dst_x;
+                calc_dest.top = 0;
+                calc_dest.right = dst_x + dst_w;
+                calc_dest.bottom = dst_h;
+            } else {
+                /* Screen is taller than 4:3: letterbox (black bars on top/bottom) */
+                int dst_w = w;
+                int dst_h = (int) (((int64_t) w * 3) / 4);
+                int dst_y = (h - dst_h) / 2;
+                calc_dest.left = 0;
+                calc_dest.top = dst_y;
+                calc_dest.right = dst_w;
+                calc_dest.bottom = dst_y + dst_h;
+            }
+            s_station0_dest_rect = calc_dest;
+            s_station0_dest_rect_valid = true;
+            use_dest = &calc_dest;
+        }
+    }
+
+    /* Present Station 0 (Main Screen) with aspect ratio preserved */
+    return IDirect3DDevice9_Present(real, pSourceRect, use_dest, hDestWindowOverride, pDirtyRegion);
 }
 
 static HRESULT STDMETHODCALLTYPE my_GetBackBuffer(
