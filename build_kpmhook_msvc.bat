@@ -30,7 +30,7 @@ set OBJDIR=build\obj\kpmhook
 if not exist %OBJDIR% mkdir %OBJDIR%
 
 echo.
-echo [1/6] Building geninput.dll...
+echo [1/7] Building geninput.dll...
 cl /nologo /O2 /MT /W3 /I src /I src/main /D_CRT_SECURE_NO_WARNINGS /Dstrtok_r=strtok_s /Fo%OBJDIR%\ /Fd%OBJDIR%\ /c ^
     src\main\geninput\dev-list.c ^
     src\main\geninput\guid.c ^
@@ -66,6 +66,7 @@ cl /nologo /O2 /MT /W3 /I src /I src/main /D_CRT_SECURE_NO_WARNINGS /Dstrtok_r=s
     src\main\util\str.c ^
     src\main\util\thread.c ^
     src\main\util\array.c ^
+    src\main\util\hex.c ^
     src\main\util\fs.c
 if errorlevel 1 exit /b 1
 
@@ -97,15 +98,37 @@ link /nologo /DLL /DEF:src\main\geninput\geninput.def /OUT:%OUTDIR%\geninput.dll
     %OBJDIR%\str.obj ^
     %OBJDIR%\thread.obj ^
     %OBJDIR%\array.obj ^
+    %OBJDIR%\hex.obj ^
     %OBJDIR%\fs.obj ^
     hid.lib setupapi.lib user32.lib kernel32.lib advapi32.lib shell32.lib
 if errorlevel 1 exit /b 1
 
-lib /nologo /machine:x86 /def:src\main\eamio\eamio.def /out:%OBJDIR%\eamio.lib
+echo.
+echo [2/7] Building eamio.dll...
+cl /nologo /O2 /MT /W3 /I src /I src/main /D_CRT_SECURE_NO_WARNINGS /Dstrtok_r=strtok_s /DBUILD_MODULE=eamio /Fo%OBJDIR%\ /Fd%OBJDIR%\ /c ^
+    src\main\eamio\eam-api.c ^
+    src\main\eamio\eam-impl.c ^
+    src\main\eamio\eam-s11n.c
+if errorlevel 1 exit /b 1
+
+link /nologo /DLL /DEF:src\main\eamio\eamio.def /OUT:%OUTDIR%\eamio.dll /IMPLIB:%OBJDIR%\eamio.lib ^
+    %OBJDIR%\eam-api.obj ^
+    %OBJDIR%\eam-impl.obj ^
+    %OBJDIR%\eam-s11n.obj ^
+    %OBJDIR%\geninput.lib ^
+    %OBJDIR%\log.obj ^
+    %OBJDIR%\mem.obj ^
+    %OBJDIR%\str.obj ^
+    %OBJDIR%\hex.obj ^
+    %OBJDIR%\thread.obj ^
+    %OBJDIR%\array.obj ^
+    %OBJDIR%\fs.obj ^
+    %OBJDIR%\util-msg-thread.obj ^
+    user32.lib kernel32.lib advapi32.lib shell32.lib
 if errorlevel 1 exit /b 1
 
 echo.
-echo [2/6] Building kpmio.dll...
+echo [3/7] Building kpmio.dll...
 cl /nologo /O2 /MT /W3 /I src /I src/main /D_CRT_SECURE_NO_WARNINGS /Fo:%OBJDIR%\kpmio.obj /c src\main\kpmio\kpmio.c
 if errorlevel 1 exit /b 1
 
@@ -114,7 +137,7 @@ link /nologo /DLL /DEF:src\main\kpmio\kpmio.def /OUT:%OUTDIR%\kpmio.dll /IMPLIB:
 if errorlevel 1 exit /b 1
 
 echo.
-echo [3/6] Building kpmhook.dll...
+echo [4/7] Building kpmhook.dll...
 set CFLAGS=/nologo /O2 /MT /W3 /I src /I src/main /DWIN32_LEAN_AND_MEAN /DPSAPI_VERSION=1 /DBUILD_MODULE=kpmhook /DCOBJMACROS /D_CRT_SECURE_NO_WARNINGS /Dstrtok_r=strtok_s /Fo%OBJDIR%\ /Fd%OBJDIR%\
 
 cl %CFLAGS% /c ^
@@ -196,7 +219,7 @@ link %LDFLAGS% ^
 if errorlevel 1 exit /b 1
 
 echo.
-echo [4/6] Building eamhook.dll for eam_if.exe...
+echo [5/7] Building eamhook.dll for eam_if.exe...
 set OBJDIR_EAM=build\obj\eamhook
 if not exist %OBJDIR_EAM% mkdir %OBJDIR_EAM%
 set CFLAGS_EAM=/nologo /O2 /MT /W3 /I src /I src/main /DWIN32_LEAN_AND_MEAN /DPSAPI_VERSION=1 /DBUILD_MODULE=eamhook /DCOBJMACROS /D_CRT_SECURE_NO_WARNINGS /Fo%OBJDIR_EAM%\ /Fd%OBJDIR_EAM%\
@@ -233,7 +256,7 @@ link /nologo /DLL /DEF:src\main\eamhook\eamhook.def /OUT:%OUTDIR%\eamhook.dll ^
 if errorlevel 1 exit /b 1
 
 echo.
-echo [5/6] Building config.exe...
+echo [6/7] Building config.exe...
 rc /nologo /i src\main /fo %OBJDIR%\config.res src\main\config\config.rc
 if errorlevel 1 exit /b 1
 
@@ -283,7 +306,7 @@ link /nologo /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup /OUT:%OUTDIR%\config.exe ^
 if errorlevel 1 exit /b 1
 
 echo.
-echo [6/6] Building inject.exe...
+echo [7/7] Building inject.exe...
 set OBJDIR_INJECT=build\obj\inject
 if not exist %OBJDIR_INJECT% mkdir %OBJDIR_INJECT%
 set CFLAGS_INJECT=/nologo /O2 /MT /W3 /I src /I src/main /DWIN32_LEAN_AND_MEAN /DPSAPI_VERSION=1 /DBUILD_MODULE=inject /D_CRT_SECURE_NO_WARNINGS /Fo%OBJDIR_INJECT%\ /Fd%OBJDIR_INJECT%\
@@ -323,6 +346,7 @@ echo.
 echo ========================================================
 echo Successfully built:
 echo   %OUTDIR%\geninput.dll
+echo   %OUTDIR%\eamio.dll
 echo   %OUTDIR%\kpmio.dll
 echo   %OUTDIR%\kpmhook.dll
 echo   %OUTDIR%\eamhook.dll
@@ -334,6 +358,7 @@ set DEST=D:\Arcade_PC\KPM-2012030600\contents
 if exist "%DEST%" (
     echo Deploying to %DEST%...
     copy /Y %OUTDIR%\geninput.dll "%DEST%\" >nul
+    copy /Y %OUTDIR%\eamio.dll "%DEST%\" >nul
     copy /Y %OUTDIR%\kpmio.dll "%DEST%\" >nul
     copy /Y %OUTDIR%\kpmhook.dll "%DEST%\" >nul
     copy /Y %OUTDIR%\eamhook.dll "%DEST%\" >nul

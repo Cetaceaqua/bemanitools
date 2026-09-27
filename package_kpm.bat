@@ -24,6 +24,7 @@ echo Staging release files...
 copy /Y build\bin\inject.exe "%STAGE_DIR%\" >nul
 copy /Y build\bin\kpmhook.dll "%STAGE_DIR%\" >nul
 copy /Y build\bin\kpmio.dll "%STAGE_DIR%\" >nul
+copy /Y build\bin\eamio.dll "%STAGE_DIR%\" >nul
 copy /Y build\bin\geninput.dll "%STAGE_DIR%\" >nul
 copy /Y build\bin\eamhook.dll "%STAGE_DIR%\" >nul
 copy /Y build\bin\config.exe "%STAGE_DIR%\" >nul
