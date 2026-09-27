@@ -4,13 +4,20 @@ on:
   push:
     branches:
       - master
+      - kpm
+      - "kpm*"
+  pull_request:
+    branches:
+      - master
+      - kpm
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: "ubuntu-22.04"
     steps:
       - name: "Checkout repository"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v4"
 
       - name: "Install prerequisites"
         run: |

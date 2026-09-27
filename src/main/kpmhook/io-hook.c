@@ -1464,7 +1464,7 @@ void kpm_io_hook_update(void)
         reset_game_idle_timers();
     }
 
-    /* --- Virtual Hopper Engine (出币/退币料斗仿真引擎闭环) ---
+    /* --- Virtual Hopper Engine (Payout closed-loop simulation) ---
      * Addresses:
      *   subwrap + 420: uint16_t state (0=Idle, 10=ReqSent, 20=WaitAck, 50=PayingOut, 100=Error)
      *   subwrap + 422: uint16_t requested payout amount

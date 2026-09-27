@@ -6,7 +6,9 @@ ldflags_kpmhook := \
     -lgdi32 \
     -lole32 \
     -loleaut32 \
-    -ld3d9
+    -ld3d9 \
+    -lwinmm \
+    -lshell32
 
 libs_kpmhook := \
     hook \

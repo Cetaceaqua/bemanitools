@@ -566,16 +566,6 @@ static void apply_point_clamp(IDirect3DDevice9 *real)
     IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
 }
 
-static HRESULT STDMETHODCALLTYPE my_SetSamplerState(
-    IDirect3DDevice9 *self,
-    DWORD Sampler,
-    D3DSAMPLERSTATETYPE Type,
-    DWORD Value)
-{
-    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
-    return IDirect3DDevice9_SetSamplerState(real, Sampler, Type, Value);
-}
-
 static HRESULT STDMETHODCALLTYPE my_DrawPrimitive(
     IDirect3DDevice9 *self,
     D3DPRIMITIVETYPE PrimitiveType,
@@ -831,7 +821,6 @@ static HRESULT STDMETHODCALLTYPE my_CreateDevice(
             dev_vtbl->DrawPrimitiveUP = my_DrawPrimitiveUP;
             dev_vtbl->DrawIndexedPrimitive = my_DrawIndexedPrimitive;
             dev_vtbl->DrawIndexedPrimitiveUP = my_DrawIndexedPrimitiveUP;
-            dev_vtbl->SetSamplerState = my_SetSamplerState;
             s_dev_proxy = (IDirect3DDevice9 *) dev_proxy;
             *pdev = s_dev_proxy;
             log_info("IDirect3DDevice9 wrapped with com_proxy successfully (proxy=0x%p, real=0x%p)", dev_proxy, s_real_device);
