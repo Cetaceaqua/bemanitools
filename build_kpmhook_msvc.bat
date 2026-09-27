@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo ========================================================
-echo Building KPM Toolchain: kpmio.dll, kpmhook.dll, config.exe
+echo Building KPM Toolchain: kpmio, kpmhook, eamhook, config, inject
 echo ========================================================
 
 where cl.exe >nul 2>nul
@@ -30,7 +30,7 @@ set OBJDIR=build\obj\kpmhook
 if not exist %OBJDIR% mkdir %OBJDIR%
 
 echo.
-echo [1/5] Building geninput.dll...
+echo [1/6] Building geninput.dll...
 cl /nologo /O2 /MT /W3 /I src /I src/main /D_CRT_SECURE_NO_WARNINGS /Dstrtok_r=strtok_s /Fo%OBJDIR%\ /Fd%OBJDIR%\ /c ^
     src\main\geninput\dev-list.c ^
     src\main\geninput\guid.c ^
@@ -105,7 +105,7 @@ lib /nologo /machine:x86 /def:src\main\eamio\eamio.def /out:%OBJDIR%\eamio.lib
 if errorlevel 1 exit /b 1
 
 echo.
-echo [2/4] Building kpmio.dll...
+echo [2/6] Building kpmio.dll...
 cl /nologo /O2 /MT /W3 /I src /I src/main /Fo:%OBJDIR%\kpmio.obj /c src\main\kpmio\kpmio.c
 if errorlevel 1 exit /b 1
 
@@ -114,7 +114,7 @@ link /nologo /DLL /DEF:src\main\kpmio\kpmio.def /OUT:%OUTDIR%\kpmio.dll /IMPLIB:
 if errorlevel 1 exit /b 1
 
 echo.
-echo [3/4] Building kpmhook.dll...
+echo [3/6] Building kpmhook.dll...
 set CFLAGS=/nologo /O2 /MT /W3 /I src /I src/main /DWIN32_LEAN_AND_MEAN /DPSAPI_VERSION=1 /DBUILD_MODULE=kpmhook /DCOBJMACROS /D_CRT_SECURE_NO_WARNINGS /Dstrtok_r=strtok_s /Fo%OBJDIR%\ /Fd%OBJDIR%\
 
 cl %CFLAGS% /c ^
@@ -196,7 +196,7 @@ link %LDFLAGS% ^
 if errorlevel 1 exit /b 1
 
 echo.
-echo [4/5] Building eamhook.dll for eam_if.exe...
+echo [4/6] Building eamhook.dll for eam_if.exe...
 set OBJDIR_EAM=build\obj\eamhook
 if not exist %OBJDIR_EAM% mkdir %OBJDIR_EAM%
 set CFLAGS_EAM=/nologo /O2 /MT /W3 /I src /I src/main /DWIN32_LEAN_AND_MEAN /DPSAPI_VERSION=1 /DBUILD_MODULE=eamhook /DCOBJMACROS /D_CRT_SECURE_NO_WARNINGS /Fo%OBJDIR_EAM%\ /Fd%OBJDIR_EAM%\
@@ -233,7 +233,7 @@ link /nologo /DLL /DEF:src\main\eamhook\eamhook.def /OUT:%OUTDIR%\eamhook.dll ^
 if errorlevel 1 exit /b 1
 
 echo.
-echo [5/5] Building config.exe...
+echo [5/6] Building config.exe...
 rc /nologo /i src\main /fo %OBJDIR%\config.res src\main\config\config.rc
 if errorlevel 1 exit /b 1
 
@@ -283,6 +283,43 @@ link /nologo /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup /OUT:%OUTDIR%\config.exe ^
 if errorlevel 1 exit /b 1
 
 echo.
+echo [6/6] Building inject.exe...
+set OBJDIR_INJECT=build\obj\inject
+if not exist %OBJDIR_INJECT% mkdir %OBJDIR_INJECT%
+set CFLAGS_INJECT=/nologo /O2 /MT /W3 /I src /I src/main /DWIN32_LEAN_AND_MEAN /DPSAPI_VERSION=1 /DBUILD_MODULE=inject /D_CRT_SECURE_NO_WARNINGS /Fo%OBJDIR_INJECT%\ /Fd%OBJDIR_INJECT%\
+
+cl %CFLAGS_INJECT% /c ^
+    src\main\inject\main.c ^
+    src\main\inject\debugger.c ^
+    src\main\inject\logger.c ^
+    src\main\inject\options.c ^
+    src\main\inject\version.c ^
+    src\main\util\os.c ^
+    src\main\util\signal.c ^
+    src\main\util\proc.c
+if errorlevel 1 exit /b 1
+
+link /nologo /SUBSYSTEM:CONSOLE /OUT:%OUTDIR%\inject.exe ^
+    %OBJDIR_INJECT%\main.obj ^
+    %OBJDIR_INJECT%\debugger.obj ^
+    %OBJDIR_INJECT%\logger.obj ^
+    %OBJDIR_INJECT%\options.obj ^
+    %OBJDIR_INJECT%\version.obj ^
+    %OBJDIR_INJECT%\os.obj ^
+    %OBJDIR_INJECT%\signal.obj ^
+    %OBJDIR_INJECT%\proc.obj ^
+    %OBJDIR%\cmdline.obj ^
+    %OBJDIR%\log.obj ^
+    %OBJDIR%\mem.obj ^
+    %OBJDIR%\str.obj ^
+    %OBJDIR%\cconfig.obj ^
+    %OBJDIR%\cconfig-util.obj ^
+    %OBJDIR%\cmd.obj ^
+    %OBJDIR%\hex.obj ^
+    psapi.lib advapi32.lib user32.lib kernel32.lib
+if errorlevel 1 exit /b 1
+
+echo.
 echo ========================================================
 echo Successfully built:
 echo   %OUTDIR%\geninput.dll
@@ -290,6 +327,7 @@ echo   %OUTDIR%\kpmio.dll
 echo   %OUTDIR%\kpmhook.dll
 echo   %OUTDIR%\eamhook.dll
 echo   %OUTDIR%\config.exe
+echo   %OUTDIR%\inject.exe
 echo ========================================================
 
 set DEST=D:\Arcade_PC\KPM-2012030600\contents
@@ -300,6 +338,11 @@ if exist "%DEST%" (
     copy /Y %OUTDIR%\kpmhook.dll "%DEST%\" >nul
     copy /Y %OUTDIR%\eamhook.dll "%DEST%\" >nul
     copy /Y %OUTDIR%\config.exe "%DEST%\" >nul
+    copy /Y %OUTDIR%\inject.exe "%DEST%\" >nul
+    copy /Y dist\kpm\gamestart.bat "%DEST%\" >nul
+    copy /Y dist\kpm\config.bat "%DEST%\" >nul
+    if not exist "%DEST%\kpmhook.conf" copy /Y dist\kpm\kpmhook.conf "%DEST%\" >nul
+    if not exist "%DEST%\eamhook.conf" copy /Y dist\kpm\eamhook.conf "%DEST%\" >nul
     if exist "%DEST%\eamuse\eamhook.dll" del /F "%DEST%\eamuse\eamhook.dll"
     echo Deploy complete.
 )

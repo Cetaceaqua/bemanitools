@@ -147,4 +147,14 @@ uint8_t kpm_io_get_payout_status(uint16_t *paid_count);
  */
 void kpm_io_set_lamps(uint32_t lamp_bits);
 
+/**
+ * Check if the virtual e-Amusement card is currently placed on the reader tray.
+ */
+bool kpm_io_is_card_placed(void);
+
+/**
+ * Manually set the placement state of the virtual e-Amusement card.
+ */
+void kpm_io_set_card_placed(bool placed);
+
 #endif /* BEMANITOOLS_KPMIO_H */

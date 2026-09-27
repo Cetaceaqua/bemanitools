@@ -24,20 +24,15 @@ jobs:
         with:
           arch: x86
 
-      - name: "Build KPM Toolchain"
+      - name: "Build & Package KPM Release"
         shell: cmd
         run: |
-          call build_kpmhook_msvc.bat
+          call package_kpm.bat
 
-      - name: "Upload artifact"
+      - name: "Upload Release Package"
         uses: actions/upload-artifact@v4
         with:
-          name: kpmhook-${{ github.sha }}
+          name: bemanitools-kpm-${{ github.sha }}
           retention-days: 90
           if-no-files-found: "error"
-          path: |
-            build/bin/geninput.dll
-            build/bin/kpmio.dll
-            build/bin/kpmhook.dll
-            build/bin/eamhook.dll
-            build/bin/config.exe
+          path: build/bemanitools-kpm.zip

@@ -8,6 +8,7 @@
 
 #include "bemanitools/eamio.h"
 #include "bemanitools/glue.h"
+#include "bemanitools/kpmio.h"
 #include "hook/table.h"
 #include "kpmhook/config-io.h"
 #include "kpmhook/reader-hook.h"
@@ -150,39 +151,39 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
 
         /* KPM is an arcade medal game where the e-AMUSEMENT PASS stays physically
            on the RFID reader tray during the entire gameplay session.
-           Insert/place card: VK_ADD (NumPad +) or VK_INSERT.
-           Eject/remove card: VK_SUBTRACT (NumPad -) or VK_DELETE. */
-        static bool s_virtual_card_placed = false;
-        static DWORD s_last_action = 0;
+           Insert/place card: Config mapped key, or VK_ADD (NumPad +) / VK_INSERT.
+           Eject/remove card: Config mapped key, or VK_SUBTRACT (NumPad -) / VK_DELETE. */
+        static bool s_key_insert_last = false;
+        static bool s_key_eject_last = false;
         static bool s_logged_card = false;
-        DWORD now = GetTickCount();
 
-        bool insert_pressed = ((GetAsyncKeyState(VK_ADD) & 0x8000) ||
-                              (GetAsyncKeyState(VK_INSERT) & 0x8000));
-        bool eject_pressed  = ((GetAsyncKeyState(VK_SUBTRACT) & 0x8000) ||
-                              (GetAsyncKeyState(VK_DELETE) & 0x8000));
+        bool key_insert = ((GetAsyncKeyState(VK_ADD) & 0x8000) != 0 ||
+                           (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0);
+        bool key_eject  = ((GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0 ||
+                           (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0);
 
-        if (insert_pressed && (now - s_last_action > 300)) {
-            s_last_action = now;
-            if (!s_virtual_card_placed) {
-                s_virtual_card_placed = true;
-                s_logged_card = false;
-                log_info("Virtual RFID Tray: Card PLACED on reader tray (+ / Insert)");
-            }
-        } else if (eject_pressed && (now - s_last_action > 300)) {
-            s_last_action = now;
-            if (s_virtual_card_placed) {
-                s_virtual_card_placed = false;
-                s_logged_card = false;
-                log_info("Virtual RFID Tray: Card EJECTED from reader tray (- / Delete)");
-            }
+        if (key_insert && !s_key_insert_last) {
+            kpm_io_set_card_placed(true);
+            log_info("Virtual RFID Tray: Card PLACED on reader tray (+ / Insert hotkey)");
+        }
+        s_key_insert_last = key_insert;
+
+        if (key_eject && !s_key_eject_last) {
+            kpm_io_set_card_placed(false);
+            log_info("Virtual RFID Tray: Card EJECTED from reader tray (- / Delete hotkey)");
+        }
+        s_key_eject_last = key_eject;
+
+        if (sensor != 0) {
+            kpm_io_set_card_placed(true);
         }
 
+        bool card_placed = kpm_io_is_card_placed();
         bool card_present = false;
         uint8_t uid[8];
         uint8_t kpm_card_type = 0;
 
-        if (s_virtual_card_placed || sensor != 0) {
+        if (card_placed) {
             memset(uid, 0, sizeof(uid));
             uint8_t card_type = eam_io_read_card(0, uid, sizeof(uid));
 
@@ -190,7 +191,31 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
                 card_present = true;
                 /* KPM protocol: 0 = ISO15693 (e-Amusement Pass), 1 = FeliCa */
                 kpm_card_type = (card_type == EAM_IO_CARD_FELICA) ? 1 : 0;
+            } else {
+                /* Reliable fallback if eamio has not loaded card file: read card0.txt or card.txt */
+                FILE *f = fopen("card0.txt", "r");
+                if (!f) f = fopen("card.txt", "r");
+                if (f) {
+                    char hex_str[32] = {0};
+                    if (fgets(hex_str, sizeof(hex_str), f)) {
+                        unsigned int b[8];
+                        if (sscanf(hex_str, "%02x%02x%02x%02x%02x%02x%02x%02x",
+                                   &b[0], &b[1], &b[2], &b[3], &b[4], &b[5], &b[6], &b[7]) == 8) {
+                            for (int i = 0; i < 8; i++) uid[i] = (uint8_t) b[i];
+                            card_present = true;
+                        }
+                    }
+                    fclose(f);
+                }
+                if (!card_present) {
+                    const uint8_t default_uid[8] = { 0xE0, 0x04, 0x01, 0x00, 0x23, 0x7C, 0x93, 0x16 };
+                    memcpy(uid, default_uid, 8);
+                    card_present = true;
+                }
+                kpm_card_type = (uid[0] == 0xE0 && uid[1] == 0x04) ? 0 : 1;
             }
+        } else {
+            s_logged_card = false;
         }
 
         if (card_present) {
@@ -487,3 +512,9 @@ void kpm_reader_hook_fini(void)
     }
     DeleteCriticalSection(&s_reader_cs);
 }
+
+bool kpm_reader_is_card_present(void)
+{
+    return kpm_io_is_card_placed();
+}
+

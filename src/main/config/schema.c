@@ -295,6 +295,8 @@ static const struct action_def kpm_actions[] = {
     {0x08, IDS_KPM_UPPER_R},
     {0x09, IDS_KPM_MEDAL},
     {0x0A, IDS_KPM_COIN},
+    {0x0B, IDS_KPM_INSERT_CARD},
+    {0x0C, IDS_KPM_EJECT_CARD},
 };
 
 static const struct light_def kpm_lights[] = {

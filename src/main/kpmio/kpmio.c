@@ -20,6 +20,10 @@ static bool s_coin_key_last = false;
 static DWORD s_coin_press_start_tick = 0;
 static DWORD s_coin_last_repeat_tick = 0;
 
+static bool s_card_placed = false;
+static bool s_insert_card_last = false;
+static bool s_eject_card_last = false;
+
 /* Virtual Hopper state */
 static uint16_t s_payout_demanded = 0;
 static uint16_t s_payout_paid = 0;
@@ -60,6 +64,9 @@ bool kpm_io_init(
     s_coin_key_last = false;
     s_coin_press_start_tick = 0;
     s_coin_last_repeat_tick = 0;
+    s_card_placed = false;
+    s_insert_card_last = false;
+    s_eject_card_last = false;
     s_hopper_state = 0;
     s_hopper_sensor = false;
     s_payout_demanded = 0;
@@ -134,6 +141,26 @@ bool kpm_io_read_inputs(void)
         }
     }
     s_coin_key_last = coin_key;
+
+    /* Insert Card: mapped bit 11 */
+    bool insert_key = (pack & (1ULL << 11)) != 0;
+    if (insert_key && !s_insert_card_last) {
+        s_card_placed = true;
+        if (s_log_info) {
+            s_log_info("kpmio", "Card PLACED on reader tray (config mapped key)");
+        }
+    }
+    s_insert_card_last = insert_key;
+
+    /* Eject Card: mapped bit 12 */
+    bool eject_key = (pack & (1ULL << 12)) != 0;
+    if (eject_key && !s_eject_card_last) {
+        s_card_placed = false;
+        if (s_log_info) {
+            s_log_info("kpmio", "Card EJECTED from reader tray (config mapped key)");
+        }
+    }
+    s_eject_card_last = eject_key;
 
     /* Virtual Hopper payout timer update (~12.5 medals/sec arcade hopper rate) */
     if (s_hopper_state == 1) {
@@ -257,4 +284,15 @@ void kpm_io_set_lamps(uint32_t lamp_bits)
         mapper_write_light(i, (lamp_bits & (1 << i)) ? 255 : 0);
     }
 }
+
+bool kpm_io_is_card_placed(void)
+{
+    return s_card_placed;
+}
+
+void kpm_io_set_card_placed(bool placed)
+{
+    s_card_placed = placed;
+}
+
 

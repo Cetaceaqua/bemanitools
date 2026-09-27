@@ -430,6 +430,8 @@ STRINGTABLE
     IDS_KPM_UPPER_R               "Upper Screen R"
     IDS_KPM_MEDAL                 "Insert Medal"
     IDS_KPM_COIN                  "Insert Coin (100 Yen)"
+    IDS_KPM_INSERT_CARD           "Insert Card"
+    IDS_KPM_EJECT_CARD            "Eject Card"
     IDS_KPM_LAMP_POP_L_R          "Pop Left (Red)"
     IDS_KPM_LAMP_POP_L_G          "Pop Left (Green)"
     IDS_KPM_LAMP_POP_L_B          "Pop Left (Blue)"

@@ -42,6 +42,8 @@
 #define ADDR_BETSLOT_FUNDS_CHECK     0x004C442B
 #define ADDR_BETSLOT_CREDIT_BYPASS   0x004C4440
 #define ADDR_COIN_DWELL_TIMEOUT_JUMP 0x00402079
+#define ADDR_TITLE_SET_TUTORIAL_FLAG      0x004A270C
+#define ADDR_PANEL_CHECK_TUTORIAL_FLAG    0x00473F2B
 #define ADDR_BOOT_STATUS_INIT_MODE   0x00425A60
 #define ADDR_STARTUP_MODE_SWITCH_JUMP 0x004263C1
 #define ADDR_OS_VERSION_CHECK        0x00427050
@@ -826,6 +828,26 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         "Patched 30s coin dwell auto-payout jump at 0x%08X to unconditional bypass",
         ADDR_COIN_DWELL_TIMEOUT_JUMP);
 
+    /* Patch 0x004A270C: In CGameTitle_Update, prevent setting m_bShowTutorial ([g_pCGameCommon + 530h]) to 1.
+     * Originally: C6 82 30 05 00 00 01 (mov byte ptr [edx+530h], 1)
+     * Replace with: C6 82 30 05 00 00 00 (mov byte ptr [edx+530h], 0)
+     * Prevents the game from popping up the un-timed tutorial screen when rotating from Title Attract to Panel mode!
+     */
+    static const uint8_t patch_title_no_tutorial[7] = { 0xC6, 0x82, 0x30, 0x05, 0x00, 0x00, 0x00 };
+    patch_memory(ADDR_TITLE_SET_TUTORIAL_FLAG, patch_title_no_tutorial, sizeof(patch_title_no_tutorial));
+
+    /* Patch 0x00473F2B: In CGameNormalMode_UpdateState, bypass tutorial popup check (state 10) directly to state 5.
+     * Originally: 80 BE 30 05 00 00 00 74 32 (cmp byte ptr [esi+530h], 0; jz short loc_473F66)
+     * Replace with: EB 39 90 90 90 90 90 90 90 (jmp short loc_473F66; 7x nop)
+     * Guarantees returning from Title attract directly enters normal idle mode with working timeout!
+     */
+    static const uint8_t patch_panel_skip_tutorial[9] = {
+        0xEB, 0x39, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
+    };
+    patch_memory(ADDR_PANEL_CHECK_TUTORIAL_FLAG, patch_panel_skip_tutorial, sizeof(patch_panel_skip_tutorial));
+    log_info("Patched tutorial trigger flags at 0x%08X and 0x%08X to protect Attract loop cycling",
+             ADDR_TITLE_SET_TUTORIAL_FLAG, ADDR_PANEL_CHECK_TUTORIAL_FLAG);
+
     /* Patch 0x00403563 & 0x0040356C: In sub_403550, un-gate CMainApplication state checks.
      * Originally: 74 2F (jz 0x403594) and 74 26 (jz 0x403594).
      * Replace with 90 90 (nop nop).
@@ -1310,6 +1332,8 @@ void kpm_io_hook_update(void)
         ctx0[14] = 1; /* Medal payout enable for sub_4018A0 */
         ctx0[13] = 0; /* Disable pay-stop abort button */
         ctx0[12] = 0; /* Clear hopper overflow error flag */
+        ctx0[15560] = 0; /* 0x3CC8: TUTORIAL PLAYING */
+        ctx0[15561] = 0; /* 0x3CC9: TUTORIAL PANEL */
     }
     uint32_t *p_ctx1 = (uint32_t *) ADDR_STATION_CTX_1;
     if (p_ctx1 && *p_ctx1) {
@@ -1318,6 +1342,8 @@ void kpm_io_hook_update(void)
         ctx1[14] = 1;
         ctx1[13] = 0;
         ctx1[12] = 0;
+        ctx1[15560] = 0;
+        ctx1[15561] = 0;
     }
     uint32_t *p_ctx2 = (uint32_t *) ADDR_STATION_CTX_2;
     if (p_ctx2 && *p_ctx2) {
@@ -1326,6 +1352,14 @@ void kpm_io_hook_update(void)
         ctx2[14] = 1;
         ctx2[13] = 0;
         ctx2[12] = 0;
+        ctx2[15560] = 0;
+        ctx2[15561] = 0;
+    }
+
+    /* Clear first-play / tutorial flag in CGameCommon (+0x530) */
+    uint32_t *p_common = (uint32_t *) 0x00E652D4;
+    if (p_common && *p_common) {
+        *((uint8_t *) (*p_common + 0x530)) = 0;
     }
 
     /* Keep CEamuseControl station enable active (natural network status driven by eam_if) */

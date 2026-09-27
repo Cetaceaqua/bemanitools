@@ -13,3 +13,5 @@ EXPORTS
     kpm_io_get_payout_status
     kpm_io_get_payout_detail
     kpm_io_set_lamps
+    kpm_io_is_card_placed
+    kpm_io_set_card_placed
