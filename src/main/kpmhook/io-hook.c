@@ -11,7 +11,6 @@
 
 #include "bemanitools/kpmio.h"
 #include "kpmhook/config-io.h"
-#include "kpmhook/hook-util.h"
 #include "kpmhook/io-hook.h"
 #include "kpmhook/touch-hook.h"
 #include "util/log.h"
@@ -424,77 +423,40 @@ static void reset_game_idle_timers(void)
  * These hooks evaluate (Credit | Coin) so any un-transferred coins protect against timeout exit.
  */
 static const uintptr_t CONT_CHECK_FUNDS_1 = 0x00473690;
-static KPM_NAKED void hook_check_funds_1(void)
+static __declspec(naked) void hook_check_funds_1(void)
 {
-#if defined(_MSC_VER)
     __asm {
         mov eax, dword ptr ds:[0x00E652D4]
         mov edi, [eax+0x2578]   ; Credit
         or edi, [eax+0x2588]    ; Coin
         jmp dword ptr [CONT_CHECK_FUNDS_1]
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "mov eax, dword ptr ds:[0x00E652D4]\n\t"
-        "mov edi, [eax+0x2578]\n\t"
-        "or edi, [eax+0x2588]\n\t"
-        "push 0x00473690\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 static const uintptr_t CONT_CHECK_FUNDS_2 = 0x00473DC4;
-static KPM_NAKED void hook_check_funds_2(void)
+static __declspec(naked) void hook_check_funds_2(void)
 {
-#if defined(_MSC_VER)
     __asm {
         mov ecx, dword ptr ds:[0x00E652D4]
         mov edx, [ecx+0x2578]   ; Credit
         or edx, [ecx+0x2588]    ; Coin
         jmp dword ptr [CONT_CHECK_FUNDS_2]
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "mov ecx, dword ptr ds:[0x00E652D4]\n\t"
-        "mov edx, [ecx+0x2578]\n\t"
-        "or edx, [ecx+0x2588]\n\t"
-        "push 0x00473DC4\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 static const uintptr_t CONT_CHECK_FUNDS_3 = 0x004C4437;
-static KPM_NAKED void hook_check_funds_3(void)
+static __declspec(naked) void hook_check_funds_3(void)
 {
-#if defined(_MSC_VER)
     __asm {
         mov edx, dword ptr ds:[0x00E652D4]
         mov edi, [edx+0x2578]   ; Credit
         or edi, [edx+0x2588]    ; Coin
         jmp dword ptr [CONT_CHECK_FUNDS_3]
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "mov edx, dword ptr ds:[0x00E652D4]\n\t"
-        "mov edi, [edx+0x2578]\n\t"
-        "or edi, [edx+0x2588]\n\t"
-        "push 0x004C4437\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 static const uintptr_t SUB_5C93A0_CONT = 0x005C93AB;
 
-KPM_HELPER_DECL(void, my_sub_5C93A0_impl, (void));
 static void my_sub_5C93A0_impl(void)
 {
     log_info("sub_5C93A0 intercepted (pay stop ignored to protect active virtual hopper payout)");
@@ -507,9 +469,8 @@ static void __cdecl my_sub_4232D0(int a1, unsigned int code, int a3, int a4)
         code, a1, a3, a4);
 }
 
-static KPM_NAKED void my_sub_5C93A0(void)
+static __declspec(naked) void my_sub_5C93A0(void)
 {
-#if defined(_MSC_VER)
     __asm {
         pushad
         call my_sub_5C93A0_impl
@@ -521,21 +482,6 @@ static KPM_NAKED void my_sub_5C93A0(void)
         mov eax, dword ptr ds:[0x01ACFCB8]
         jmp dword ptr [SUB_5C93A0_CONT]
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "pushad\n\t"
-        "call my_sub_5C93A0_impl\n\t"
-        "popad\n\t"
-        "push ebp\n\t"
-        "mov ebp, esp\n\t"
-        "and esp, 0xFFFFFFF8\n\t"
-        "mov eax, dword ptr ds:[0x01ACFCB8]\n\t"
-        "push 0x005C93AB\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 static const char S_KONAMI_PCB_ID[] = "014014000003CCCBC50D";

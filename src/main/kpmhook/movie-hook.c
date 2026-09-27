@@ -9,7 +9,6 @@
 
 #include "kpmhook/config-io.h"
 #include "kpmhook/d3d9-hook.h"
-#include "kpmhook/hook-util.h"
 #include "kpmhook/movie-hook.h"
 #include "kpmhook/path-hook.h"
 #include "util/log.h"
@@ -124,7 +123,6 @@ static uint8_t call_is_playing(void *this_ptr)
     return fn(this_ptr, NULL);
 }
 
-KPM_HELPER_DECL(char, my_check_movie_ready, (uint8_t *movie_ctrl));
 static char __cdecl my_check_movie_ready(uint8_t *movie_ctrl)
 {
     if (!movie_ctrl) {
@@ -179,9 +177,8 @@ static char __cdecl my_check_movie_ready(uint8_t *movie_ctrl)
     return 0;
 }
 
-static KPM_NAKED void my_movie_ready_thunk(void)
+static __declspec(naked) void my_movie_ready_thunk(void)
 {
-#if defined(_MSC_VER)
     __asm {
         push ebp
         mov ebp, esp
@@ -192,23 +189,8 @@ static KPM_NAKED void my_movie_ready_thunk(void)
         pop ebp
         ret
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "push ebp\n\t"
-        "mov ebp, esp\n\t"
-        "push esi\n\t"
-        "call my_check_movie_ready\n\t"
-        "add esp, 4\n\t"
-        "mov esp, ebp\n\t"
-        "pop ebp\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
-KPM_HELPER_DECL(bool, my_step14_check_movie, (int char_idx));
 static bool my_step14_check_movie(int char_idx)
 {
     if (!s_play_movie) {
@@ -217,48 +199,23 @@ static bool my_step14_check_movie(int char_idx)
     }
 
     bool res = false;
-#if defined(_MSC_VER)
     __asm {
         mov esi, char_idx
         mov eax, 0x00542C90
         call eax
         mov res, al
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "mov esi, %1\n\t"
-        "mov eax, 0x00542C90\n\t"
-        "call eax\n\t"
-        "mov %0, al\n\t"
-        ".att_syntax prefix\n\t"
-        : "=m"(res)
-        : "m"(char_idx)
-        : "eax", "esi"
-    );
-#endif
     return res;
 }
 
-static KPM_NAKED void my_step14_check_movie_thunk(void)
+static __declspec(naked) void my_step14_check_movie_thunk(void)
 {
-#if defined(_MSC_VER)
     __asm {
         push esi
         call my_step14_check_movie
         add esp, 4
         ret
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "push esi\n\t"
-        "call my_step14_check_movie\n\t"
-        "add esp, 4\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 void kpm_movie_hook_init(const struct kpmhook_config_io *cfg)

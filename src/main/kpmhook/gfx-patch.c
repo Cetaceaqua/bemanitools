@@ -7,7 +7,6 @@
 
 #include "hook/pe.h"
 #include "kpmhook/gfx-patch.h"
-#include "kpmhook/hook-util.h"
 #include "util/log.h"
 
 static void kpm_gfx_install_texture_crash_hook(void);
@@ -151,7 +150,6 @@ static const uintptr_t SUB_595060_ENTRY_CONT = 0x00595066;
 static const uintptr_t SUB_595060_CRASH_ADDR = 0x005950B0;
 static const uintptr_t SUB_595060_CRASH_CONT = 0x005950B7;
 
-KPM_HELPER_DECL(void, log_sub_595060_entry, (void *a1, void *a2, const void *buf, uint32_t size));
 static void log_sub_595060_entry(void *a1, void *a2, const void *buf, uint32_t size)
 {
     if (!buf || size < 4) {
@@ -159,15 +157,13 @@ static void log_sub_595060_entry(void *a1, void *a2, const void *buf, uint32_t s
     }
 }
 
-KPM_HELPER_DECL(void, log_sub_595060_null, (void *ebx));
 static void log_sub_595060_null(void *ebx)
 {
     log_warning("sub_595060: [ebx+10h] is NULL! Handled safely to prevent 0xC0000005 crash.");
 }
 
-static KPM_NAKED void sub_595060_entry_hook(void)
+static __declspec(naked) void sub_595060_entry_hook(void)
 {
-#if defined(_MSC_VER)
     __asm {
         pushad
         push dword ptr [esp + 32 + 16] // arg 4: size
@@ -184,30 +180,10 @@ static KPM_NAKED void sub_595060_entry_hook(void)
         mov ebx, [esp + 0x0C]
         jmp dword ptr [SUB_595060_ENTRY_CONT]
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "pushad\n\t"
-        "push dword ptr [esp + 32 + 16]\n\t"
-        "push dword ptr [esp + 32 + 12]\n\t"
-        "push dword ptr [esp + 32 + 8]\n\t"
-        "push dword ptr [esp + 32 + 4]\n\t"
-        "call log_sub_595060_entry\n\t"
-        "add esp, 16\n\t"
-        "popad\n\t"
-        "push ecx\n\t"
-        "push ebx\n\t"
-        "mov ebx, [esp + 0x0C]\n\t"
-        "push 0x00595066\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
-static KPM_NAKED void sub_595060_crash_hook(void)
+static __declspec(naked) void sub_595060_crash_hook(void)
 {
-#if defined(_MSC_VER)
     __asm {
         mov eax, [ebx + 0x10]
         test eax, eax
@@ -235,34 +211,6 @@ static KPM_NAKED void sub_595060_crash_hook(void)
         mov dx, [eax + 0x0C]
         jmp dword ptr [SUB_595060_CRASH_CONT]
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "mov eax, [ebx + 0x10]\n\t"
-        "test eax, eax\n\t"
-        "jnz 1f\n\t"
-        "pushad\n\t"
-        "push ebx\n\t"
-        "call log_sub_595060_null\n\t"
-        "add esp, 4\n\t"
-        "popad\n\t"
-        "mov word ptr [ebx + 0x18], 0\n\t"
-        "mov word ptr [ebx + 0x1A], 0\n\t"
-        "mov word ptr [ebx + 0x38], 0\n\t"
-        "mov dword ptr [ebx + 0x3C], 0\n\t"
-        "pop edi\n\t"
-        "pop esi\n\t"
-        "pop ebp\n\t"
-        "pop ebx\n\t"
-        "pop ecx\n\t"
-        "ret 0x10\n\t"
-        "1:\n\t"
-        "mov dx, [eax + 0x0C]\n\t"
-        "push 0x005950B7\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 static void kpm_gfx_install_texture_crash_hook(void)
@@ -299,9 +247,8 @@ static void kpm_gfx_install_texture_crash_hook(void)
 static const uintptr_t SUB_4C7621_ADDR = 0x004C7621;
 static const uintptr_t SUB_4C7621_CONT = 0x004C762C;
 
-static KPM_NAKED void sub_4C7621_hook(void)
+static __declspec(naked) void sub_4C7621_hook(void)
 {
-#if defined(_MSC_VER)
     __asm {
         test ecx, ecx
         jz null_station
@@ -317,24 +264,6 @@ static KPM_NAKED void sub_4C7621_hook(void)
     cont:
         jmp dword ptr [SUB_4C7621_CONT]
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "test ecx, ecx\n\t"
-        "jz 1f\n\t"
-        "mov edx, [ecx]\n\t"
-        "mov eax, [edx + 0x7C]\n\t"
-        "call eax\n\t"
-        "mov [esi + edi*4 + 0x20], eax\n\t"
-        "push 0x004C762C\n\t"
-        "ret\n\t"
-        "1:\n\t"
-        "mov dword ptr [esi + edi*4 + 0x20], 0\n\t"
-        "push 0x004C762C\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 static void kpm_station_install_safety_hook(void)

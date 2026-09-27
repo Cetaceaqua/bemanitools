@@ -8,17 +8,14 @@
 
 #include "kpmhook/sound-hook.h"
 #include "kpmhook/path-hook.h"
-#include "kpmhook/hook-util.h"
 #include "util/defs.h"
 #include "util/log.h"
 
-KPM_HELPER_DECL(void, log_sub_5E3F50_null, (void));
 static void log_sub_5E3F50_null(void)
 {
     log_warning("sub_5E3F50 called with invalid CWavDataList (ESI < 0x1000), skipping");
 }
 
-KPM_HELPER_DECL(void, log_sub_5E2D70_null, (void));
 static void log_sub_5E2D70_null(void)
 {
     log_warning("sub_5E2D70 called with invalid CWavDataList (a1 < 0x1000), returning NULL group");
@@ -38,9 +35,8 @@ static void log_sub_5E2D70_null(void)
 static const uintptr_t SUB_5E2D70_ADDR = 0x005E2D70;
 static const uintptr_t SUB_5E2D70_CONT = 0x005E2D76;
 
-static KPM_NAKED void sub_5E2D70_hook(void)
+static __declspec(naked) void sub_5E2D70_hook(void)
 {
-#if defined(_MSC_VER)
     __asm {
         mov eax, [esp + 4]
         cmp eax, 0x1000
@@ -57,26 +53,6 @@ null_a1:
         xor eax, eax
         ret 8
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "mov eax, [esp + 4]\n\t"
-        "cmp eax, 0x1000\n\t"
-        "jb 1f\n\t"
-        "push ebp\n\t"
-        "mov ebp, esp\n\t"
-        "and esp, 0xFFFFFFF8\n\t"
-        "push 0x005E2D76\n\t"
-        "ret\n\t"
-        "1:\n\t"
-        "pushad\n\t"
-        "call log_sub_5E2D70_null\n\t"
-        "popad\n\t"
-        "xor eax, eax\n\t"
-        "ret 8\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 /*
@@ -91,9 +67,8 @@ null_a1:
 static const uintptr_t SUB_5E3F50_ADDR = 0x005E3F50;
 static const uintptr_t SUB_5E3F50_CONT = 0x005E3F56;
 
-static KPM_NAKED void sub_5E3F50_hook(void)
+static __declspec(naked) void sub_5E3F50_hook(void)
 {
-#if defined(_MSC_VER)
     __asm {
         cmp esi, 0x1000
         jb null_ret
@@ -108,24 +83,6 @@ null_ret:
         popad
         ret 4
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "cmp esi, 0x1000\n\t"
-        "jb 1f\n\t"
-        "push ebp\n\t"
-        "mov ebp, esp\n\t"
-        "and esp, 0xFFFFFFF8\n\t"
-        "push 0x005E3F56\n\t"
-        "ret\n\t"
-        "1:\n\t"
-        "pushad\n\t"
-        "call log_sub_5E3F50_null\n\t"
-        "popad\n\t"
-        "ret 4\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 /*
@@ -139,7 +96,6 @@ static const uintptr_t SUB_5EAE10_CONT = 0x005EAE17;
 
 static char s_s3b_rewritten[MAX_PATH];
 
-KPM_HELPER_DECL(const char *, rewrite_s3b_path, (const char *in_path));
 static const char *rewrite_s3b_path(const char *in_path)
 {
     if (!in_path || !*in_path) return in_path;
@@ -183,9 +139,8 @@ static const char *rewrite_s3b_path(const char *in_path)
     return s_s3b_rewritten;
 }
 
-static KPM_NAKED void sub_5EAE10_hook(void)
+static __declspec(naked) void sub_5EAE10_hook(void)
 {
-#if defined(_MSC_VER)
     __asm {
         test edi, edi
         jz null_edi
@@ -210,28 +165,6 @@ null_edi:
         xor eax, eax
         ret
     }
-#elif defined(__GNUC__)
-    __asm__ __volatile__(
-        ".intel_syntax noprefix\n\t"
-        "test edi, edi\n\t"
-        "jz 1f\n\t"
-        "pushad\n\t"
-        "push eax\n\t"
-        "call rewrite_s3b_path\n\t"
-        "add esp, 4\n\t"
-        "mov [esp + 28], eax\n\t"
-        "popad\n\t"
-        "push esi\n\t"
-        "push 0x00BBC48C\n\t"
-        "push eax\n\t"
-        "push 0x005EAE17\n\t"
-        "ret\n\t"
-        "1:\n\t"
-        "xor eax, eax\n\t"
-        "ret\n\t"
-        ".att_syntax prefix\n\t"
-    );
-#endif
 }
 
 void kpm_sound_hook_init(void)
