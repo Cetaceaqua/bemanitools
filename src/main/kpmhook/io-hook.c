@@ -472,46 +472,21 @@ static __declspec(naked) void my_sub_5C93A0(void)
     }
 }
 
-static const char S_KONAMI_PCB_ID[] = "014014000003CCCBC50D";
-
 /* Standard 40-byte DS2430A Dongle structure (32B Payload + 8B ROM ID) */
 struct ds2430a_dongle {
     uint8_t rom_id[8];
     uint8_t payload[32];
 };
 
-/* Default authenticated DS2430A White Network Plug (E-AMUSE3, @@@@@@@@, PCBID: 014014000003CCCBC50D) */
-static const uint8_t S_DEFAULT_WHITE_ROM_ID[8] = {
-    0x14, 0x00, 0x00, 0x03, 0xCC, 0xCB, 0xC5, 0x0D
-};
-static const uint8_t S_DEFAULT_WHITE_PAYLOAD[32] = {
-    0x6A, 0xB1, 0x25, 0xA2, 0xD1, 0xB1, 0x20, 0x08,
-    0x82, 0x20, 0x08, 0x82, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56
-};
-
-/* Default authenticated DS2430A Black Software Plug (LOUSSTAI, GSKPMJAA) */
-static const uint8_t S_DEFAULT_BLACK_ROM_ID[8] = {
-    0x14, 0x20, 0x03, 0x58, 0x01, 0x00, 0x00, 0x98
-};
-static const uint8_t S_DEFAULT_BLACK_PAYLOAD[32] = {
-    0xC9, 0x5D, 0x85, 0xF0, 0xD5, 0xA4, 0xE7, 0xBC,
-    0xC2, 0xAD, 0x1A, 0x86, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEA
-};
-
 static struct ds2430a_dongle s_net_dongle;
 static struct ds2430a_dongle s_soft_dongle;
+static char s_pcb_id[32] = {0};
 static bool s_dongles_initialized = false;
 
 static void load_ds2430a_dongle(
     const char *primary_filename,
     const char *secondary_filename,
-    struct ds2430a_dongle *out_dongle,
-    const uint8_t *default_rom_id,
-    const uint8_t *default_payload)
+    struct ds2430a_dongle *out_dongle)
 {
     FILE *f = fopen(primary_filename, "rb");
     const char *loaded_path = primary_filename;
@@ -527,6 +502,17 @@ static void load_ds2430a_dongle(
         if (sep) {
             *sep = '\0';
             _snprintf(exe_dir_file + strlen(exe_dir_file), sizeof(exe_dir_file) - strlen(exe_dir_file), "\\%s", primary_filename);
+            f = fopen(exe_dir_file, "rb");
+            if (f) loaded_path = exe_dir_file;
+        }
+    }
+    if (!f) {
+        GetModuleFileNameA(NULL, exe_dir_file, sizeof(exe_dir_file));
+        char *sep = strrchr(exe_dir_file, '\\');
+        if (!sep) sep = strrchr(exe_dir_file, '/');
+        if (sep) {
+            *sep = '\0';
+            _snprintf(exe_dir_file + strlen(exe_dir_file), sizeof(exe_dir_file) - strlen(exe_dir_file), "\\contents\\%s", primary_filename);
             f = fopen(exe_dir_file, "rb");
             if (f) loaded_path = exe_dir_file;
         }
@@ -559,18 +545,45 @@ static void load_ds2430a_dongle(
                     out_dongle->rom_id[0], out_dongle->rom_id[1], out_dongle->rom_id[2], out_dongle->rom_id[3],
                     out_dongle->rom_id[4], out_dongle->rom_id[5], out_dongle->rom_id[6], out_dongle->rom_id[7]);
                 return;
+            } else {
+                char err_msg[512];
+                _snprintf(
+                    err_msg,
+                    sizeof(err_msg),
+                    "Security dongle file '%s' has an invalid format!\n\n"
+                    "DS2430A family code 0x14 was not found at offset 32 or 0.",
+                    loaded_path);
+                MessageBoxA(NULL, err_msg, "KPMHook - Invalid Dongle Data", MB_ICONERROR | MB_OK);
+                log_fatal(
+                    "Dongle file '%s' has invalid format (expected DS2430A family code 0x14 at offset 32 or 0)!",
+                    loaded_path);
             }
+        } else {
+            char err_msg[512];
+            _snprintf(
+                err_msg,
+                sizeof(err_msg),
+                "Security dongle file '%s' has an invalid size (%u bytes)!\n\n"
+                "Expected exactly 40 bytes (32-byte payload + 8-byte ROM ID).",
+                loaded_path,
+                (unsigned int) n);
+            MessageBoxA(NULL, err_msg, "KPMHook - Invalid Dongle Data", MB_ICONERROR | MB_OK);
+            log_fatal(
+                "Dongle file '%s' has invalid size (%u bytes, expected 40 bytes)!",
+                loaded_path, (unsigned int) n);
         }
     }
 
-    /* Fallback to default verified parameters */
-    memcpy(out_dongle->rom_id, default_rom_id, 8);
-    memcpy(out_dongle->payload, default_payload, 32);
-    log_info(
-        "Using built-in authenticated DS2430A dongle for %s (ROM ID: %02X%02X%02X%02X%02X%02X%02X%02X)",
+    char err_msg[512];
+    _snprintf(
+        err_msg,
+        sizeof(err_msg),
+        "Required DS2430A security dongle file '%s' was not found!\n\n"
+        "Please make sure '%s' is placed in the game directory or contents folder.",
         primary_filename,
-        out_dongle->rom_id[0], out_dongle->rom_id[1], out_dongle->rom_id[2], out_dongle->rom_id[3],
-        out_dongle->rom_id[4], out_dongle->rom_id[5], out_dongle->rom_id[6], out_dongle->rom_id[7]);
+        primary_filename);
+    MessageBoxA(NULL, err_msg, "KPMHook - Missing Dongle Data", MB_ICONERROR | MB_OK);
+    log_fatal("Required DS2430A security dongle file '%s' not found!", primary_filename);
 }
 
 static void init_ds2430a_dongles(void)
@@ -583,16 +596,19 @@ static void init_ds2430a_dongles(void)
     load_ds2430a_dongle(
         "dongle_network.bin",
         "contents/dongle_network.bin",
-        &s_net_dongle,
-        S_DEFAULT_WHITE_ROM_ID,
-        S_DEFAULT_WHITE_PAYLOAD);
+        &s_net_dongle);
 
     load_ds2430a_dongle(
         "dongle_software.bin",
         "contents/dongle_software.bin",
-        &s_soft_dongle,
-        S_DEFAULT_BLACK_ROM_ID,
-        S_DEFAULT_BLACK_PAYLOAD);
+        &s_soft_dongle);
+
+    _snprintf(
+        s_pcb_id,
+        sizeof(s_pcb_id),
+        "0140%02X%02X%02X%02X%02X%02X%02X%02X",
+        s_net_dongle.rom_id[0], s_net_dongle.rom_id[1], s_net_dongle.rom_id[2], s_net_dongle.rom_id[3],
+        s_net_dongle.rom_id[4], s_net_dongle.rom_id[5], s_net_dongle.rom_id[6], s_net_dongle.rom_id[7]);
 }
 
 
@@ -604,11 +620,11 @@ static void init_ds2430a_dongles(void)
 static int __fastcall my_sub_5CA870(void *this_ptr, void *edx_unused, char *buf, unsigned int max_len)
 {
     if (buf && max_len > 0) {
-        size_t id_len = strlen(S_KONAMI_PCB_ID);
+        size_t id_len = strlen(s_pcb_id);
         if (id_len >= max_len) {
             id_len = max_len - 1;
         }
-        memcpy(buf, S_KONAMI_PCB_ID, id_len);
+        memcpy(buf, s_pcb_id, id_len);
         buf[id_len] = '\0';
     }
     return (int) (uintptr_t) buf;
@@ -639,7 +655,7 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
     log_info(
         "Hooked sub_5CA870 at 0x%08X to return authentic PCB ID (%s)",
         ADDR_PCSUB_GET_NET_PLUG_ID,
-        S_KONAMI_PCB_ID);
+        s_pcb_id);
 
     /* Patch 0x0041FDC6 in CBootStatus::CheckEamuse:
      * Originally: cmp eax, edi; jnz loc_41FE61 (0F 85 95 00 00 00)
