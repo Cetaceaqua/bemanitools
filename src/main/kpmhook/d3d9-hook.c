@@ -395,7 +395,7 @@ static void present_station1_quad(IDirect3DDevice9 *real)
     vp.MaxZ = 1.0f;
     IDirect3DDevice9_SetViewport(real, &vp);
 
-    struct rot_vertex quad[4];
+    struct rot_vertex quad[6];
     float w = (float) dst_w;
     float h = (float) dst_h;
 
@@ -406,16 +406,24 @@ static void present_station1_quad(IDirect3DDevice9 *real)
          * Bottom-Left:  (0, h) -> UV=(0, 0)
          * Bottom-Right: (w, h) -> UV=(0, 1)
          */
+        /* Triangle 1: Top-Left, Top-Right, Bottom-Left */
         quad[0].x = -0.5f;    quad[0].y = -0.5f;    quad[0].z = 0.0f; quad[0].rhw = 1.0f; quad[0].u = 1.0f; quad[0].v = 0.0f;
         quad[1].x = w - 0.5f; quad[1].y = -0.5f;    quad[1].z = 0.0f; quad[1].rhw = 1.0f; quad[1].u = 1.0f; quad[1].v = 1.0f;
         quad[2].x = -0.5f;    quad[2].y = h - 0.5f; quad[2].z = 0.0f; quad[2].rhw = 1.0f; quad[2].u = 0.0f; quad[2].v = 0.0f;
-        quad[3].x = w - 0.5f; quad[3].y = h - 0.5f; quad[3].z = 0.0f; quad[3].rhw = 1.0f; quad[3].u = 0.0f; quad[3].v = 1.0f;
+        /* Triangle 2: Top-Right, Bottom-Right, Bottom-Left */
+        quad[3].x = w - 0.5f; quad[3].y = -0.5f;    quad[3].z = 0.0f; quad[3].rhw = 1.0f; quad[3].u = 1.0f; quad[3].v = 1.0f;
+        quad[4].x = w - 0.5f; quad[4].y = h - 0.5f; quad[4].z = 0.0f; quad[4].rhw = 1.0f; quad[4].u = 0.0f; quad[4].v = 1.0f;
+        quad[5].x = -0.5f;    quad[5].y = h - 0.5f; quad[5].z = 0.0f; quad[5].rhw = 1.0f; quad[5].u = 0.0f; quad[5].v = 0.0f;
     } else {
         /* Direct landscape blit */
+        /* Triangle 1: Top-Left, Top-Right, Bottom-Left */
         quad[0].x = -0.5f;    quad[0].y = -0.5f;    quad[0].z = 0.0f; quad[0].rhw = 1.0f; quad[0].u = 0.0f; quad[0].v = 0.0f;
-        quad[1].x = w - 0.5f; quad[1].y = -0.5f;    quad[1].z = 0.0f; quad[1].rhw = 1.0f; quad[1].u = 1.0f; quad[0].v = 0.0f;
+        quad[1].x = w - 0.5f; quad[1].y = -0.5f;    quad[1].z = 0.0f; quad[1].rhw = 1.0f; quad[1].u = 1.0f; quad[1].v = 0.0f;
         quad[2].x = -0.5f;    quad[2].y = h - 0.5f; quad[2].z = 0.0f; quad[2].rhw = 1.0f; quad[2].u = 0.0f; quad[2].v = 1.0f;
-        quad[3].x = w - 0.5f; quad[3].y = h - 0.5f; quad[3].z = 0.0f; quad[3].rhw = 1.0f; quad[3].u = 1.0f; quad[3].v = 1.0f;
+        /* Triangle 2: Top-Right, Bottom-Right, Bottom-Left */
+        quad[3].x = w - 0.5f; quad[3].y = -0.5f;    quad[3].z = 0.0f; quad[3].rhw = 1.0f; quad[3].u = 1.0f; quad[3].v = 0.0f;
+        quad[4].x = w - 0.5f; quad[4].y = h - 0.5f; quad[4].z = 0.0f; quad[4].rhw = 1.0f; quad[4].u = 1.0f; quad[4].v = 1.0f;
+        quad[5].x = -0.5f;    quad[5].y = h - 0.5f; quad[5].z = 0.0f; quad[5].rhw = 1.0f; quad[5].u = 0.0f; quad[5].v = 1.0f;
     }
 
     IDirect3DDevice9_SetVertexShader(real, NULL);
@@ -436,7 +444,7 @@ static void present_station1_quad(IDirect3DDevice9 *real)
     IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
 
     IDirect3DDevice9_BeginScene(real);
-    IDirect3DDevice9_DrawPrimitiveUP(real, D3DPT_TRIANGLESTRIP, 2, quad, sizeof(struct rot_vertex));
+    IDirect3DDevice9_DrawPrimitiveUP(real, D3DPT_TRIANGLELIST, 2, quad, sizeof(struct rot_vertex));
     IDirect3DDevice9_EndScene(real);
 
     /* Explicitly unbind texture from stage 0 before state restoration */
@@ -541,6 +549,115 @@ static HRESULT STDMETHODCALLTYPE my_Reset(
     }
 
     return hr;
+}
+
+struct quad_vertex_28 {
+    float x, y, z, rhw;
+    uint32_t color;
+    float u, v;
+};
+
+static void apply_point_clamp(IDirect3DDevice9 *real)
+{
+    IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    IDirect3DDevice9_SetSamplerState(real, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+}
+
+static HRESULT STDMETHODCALLTYPE my_SetSamplerState(
+    IDirect3DDevice9 *self,
+    DWORD Sampler,
+    D3DSAMPLERSTATETYPE Type,
+    DWORD Value)
+{
+    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+    return IDirect3DDevice9_SetSamplerState(real, Sampler, Type, Value);
+}
+
+static HRESULT STDMETHODCALLTYPE my_DrawPrimitive(
+    IDirect3DDevice9 *self,
+    D3DPRIMITIVETYPE PrimitiveType,
+    UINT StartVertex,
+    UINT PrimitiveCount)
+{
+    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+
+    if (PrimitiveCount == 2 && (PrimitiveType == D3DPT_TRIANGLEFAN || PrimitiveType == D3DPT_TRIANGLESTRIP || PrimitiveType == D3DPT_TRIANGLELIST)) {
+        apply_point_clamp(real);
+    }
+
+    return IDirect3DDevice9_DrawPrimitive(real, PrimitiveType, StartVertex, PrimitiveCount);
+}
+
+static HRESULT STDMETHODCALLTYPE my_DrawPrimitiveUP(
+    IDirect3DDevice9 *self,
+    D3DPRIMITIVETYPE PrimitiveType,
+    UINT PrimitiveCount,
+    CONST void *pVertexStreamZeroData,
+    UINT VertexStreamZeroStride)
+{
+    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+
+    /* Fullscreen composite quad: shift UV by +0.5 texels to align pixel centers with texel centers.
+     * This eliminates the D3D9/DXVK rounding phase-jitter mask while preserving 100% pixel-perfect sharpness. */
+    if (PrimitiveCount == 2 && (PrimitiveType == D3DPT_TRIANGLEFAN || PrimitiveType == D3DPT_TRIANGLESTRIP || PrimitiveType == D3DPT_TRIANGLELIST)) {
+        if (pVertexStreamZeroData && VertexStreamZeroStride == sizeof(struct quad_vertex_28)) {
+            struct quad_vertex_28 temp[4];
+            memcpy(temp, pVertexStreamZeroData, sizeof(temp));
+
+            const float du = 0.5f / 1024.0f;
+            const float dv = 0.5f / 768.0f;
+
+            for (int i = 0; i < 4; i++) {
+                temp[i].u += du;
+                temp[i].v += dv;
+            }
+            apply_point_clamp(real);
+            return IDirect3DDevice9_DrawPrimitiveUP(real, PrimitiveType, PrimitiveCount, temp, VertexStreamZeroStride);
+        }
+    }
+
+    return IDirect3DDevice9_DrawPrimitiveUP(real, PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
+}
+
+static HRESULT STDMETHODCALLTYPE my_DrawIndexedPrimitive(
+    IDirect3DDevice9 *self,
+    D3DPRIMITIVETYPE PrimitiveType,
+    INT BaseVertexIndex,
+    UINT MinVertexIndex,
+    UINT NumVertices,
+    UINT StartIndex,
+    UINT PrimitiveCount)
+{
+    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+
+    if (PrimitiveCount == 2 && (PrimitiveType == D3DPT_TRIANGLEFAN || PrimitiveType == D3DPT_TRIANGLESTRIP || PrimitiveType == D3DPT_TRIANGLELIST)) {
+        apply_point_clamp(real);
+    }
+
+    return IDirect3DDevice9_DrawIndexedPrimitive(real, PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount);
+}
+
+static HRESULT STDMETHODCALLTYPE my_DrawIndexedPrimitiveUP(
+    IDirect3DDevice9 *self,
+    D3DPRIMITIVETYPE PrimitiveType,
+    UINT MinVertexIndex,
+    UINT NumVertices,
+    UINT PrimitiveCount,
+    CONST void *pIndexData,
+    D3DFORMAT IndexDataFormat,
+    CONST void *pVertexStreamZeroData,
+    UINT VertexStreamZeroStride)
+{
+    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+
+    if (PrimitiveCount == 2 && (PrimitiveType == D3DPT_TRIANGLEFAN || PrimitiveType == D3DPT_TRIANGLESTRIP || PrimitiveType == D3DPT_TRIANGLELIST)) {
+        apply_point_clamp(real);
+    }
+
+    return IDirect3DDevice9_DrawIndexedPrimitiveUP(real, PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
 }
 
 static HRESULT STDMETHODCALLTYPE my_Present(
@@ -710,6 +827,11 @@ static HRESULT STDMETHODCALLTYPE my_CreateDevice(
             dev_vtbl->GetBackBuffer = my_GetBackBuffer;
             dev_vtbl->GetNumberOfSwapChains = my_GetNumberOfSwapChains;
             dev_vtbl->GetSwapChain = my_GetSwapChain;
+            dev_vtbl->DrawPrimitive = my_DrawPrimitive;
+            dev_vtbl->DrawPrimitiveUP = my_DrawPrimitiveUP;
+            dev_vtbl->DrawIndexedPrimitive = my_DrawIndexedPrimitive;
+            dev_vtbl->DrawIndexedPrimitiveUP = my_DrawIndexedPrimitiveUP;
+            dev_vtbl->SetSamplerState = my_SetSamplerState;
             s_dev_proxy = (IDirect3DDevice9 *) dev_proxy;
             *pdev = s_dev_proxy;
             log_info("IDirect3DDevice9 wrapped with com_proxy successfully (proxy=0x%p, real=0x%p)", dev_proxy, s_real_device);

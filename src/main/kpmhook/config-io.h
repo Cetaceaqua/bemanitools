@@ -27,7 +27,6 @@ struct kpmhook_config_io {
     bool show_secret_menu;
     int attract_timeout;
     bool boot_to_title;
-    bool coin_auto_transfer;
     bool play_movie;
 };
 

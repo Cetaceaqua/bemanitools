@@ -44,8 +44,8 @@
 #define ADDR_COIN_DWELL_TIMEOUT_JUMP 0x00402079
 #define ADDR_BOOT_STATUS_INIT_MODE   0x00425A60
 #define ADDR_STARTUP_MODE_SWITCH_JUMP 0x004263C1
-#define ADDR_HARDWARE_TEST_MODE_0    0x004F2DC8
-#define ADDR_HARDWARE_TEST_MODE_1    0x004F2DE8
+#define ADDR_OS_VERSION_CHECK        0x00427050
+#define ADDR_OS_VERSION_STRING       0x00E5EE10
 #define ADDR_NVRAM_SRAM_BUFFER       0x01D02970
 #define ADDR_NVRAM_ERROR_FLAGS       0x01ACE7E4
 #define ADDR_STATION_CTX_0           0x00E652E0
@@ -120,6 +120,22 @@ static void patch_call(uintptr_t call_site, const void *target_func)
     call_bytes[0] = 0xE8;
     memcpy(&call_bytes[1], &rel, sizeof(rel));
     patch_memory(call_site, call_bytes, sizeof(call_bytes));
+}
+
+static void patch_jmp(uintptr_t jmp_site, const void *target_func)
+{
+    uint32_t rel = (uint32_t) ((uintptr_t) target_func - (jmp_site + 5));
+    uint8_t jmp_bytes[5];
+    jmp_bytes[0] = 0xE9;
+    memcpy(&jmp_bytes[1], &rel, sizeof(rel));
+    patch_memory(jmp_site, jmp_bytes, sizeof(jmp_bytes));
+}
+
+static int __stdcall my_os_version_check(int a1)
+{
+    strncpy((char *) ADDR_OS_VERSION_STRING, "KONAMI OS 2012", 31);
+    ((char *) ADDR_OS_VERSION_STRING)[31] = '\0';
+    return 1; /* 1 = OK */
 }
 
 static bool s_nvram_initialized = false;
@@ -264,15 +280,6 @@ static char __fastcall my_GetButtonState(void *this_ptr, void *edx_unused, int c
     if (channel == 9) {
         uint16_t btns = kpm_io_get_buttons();
         bool transfer_active = (btns & KPM_IO_BTN_TRANSFER) != 0;
-        if (!transfer_active && s_cfg.coin_auto_transfer) {
-            uint32_t *p_data = (uint32_t *) 0x00E652D4;
-            if (p_data && *p_data) {
-                uint32_t coin_meter = *((uint32_t *) (*p_data + 9608));
-                if (coin_meter > 0) {
-                    transfer_active = true;
-                }
-            }
-        }
 
         if (transfer_active) {
             DWORD now = GetTickCount();
@@ -939,6 +946,14 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         "Installed Transfer & Collect responsiveness, Error 0xE800 elimination, and pay-stop protection patches",
         ADDR_MAINAPP_UPDATE_GATE_1);
 
+    /* Hook 0x00427050: Startup OS version check (sub_427050).
+     * By default, the game reads c:\VERSION.TXT for OS_VER. On PC environments or without
+     * game.conf, this file does not exist, causing "OS VERSION CHECK BAD" (Error 0xF780).
+     * We populate the OS version string buffer and return 1 (OK).
+     */
+    patch_jmp(ADDR_OS_VERSION_CHECK, my_os_version_check);
+    log_info("Hooked OS version check at 0x%08X to return OK (\"KONAMI OS 2012\")", ADDR_OS_VERSION_CHECK);
+
     if (cfg->boot_to_title) {
         /* In CGameStatus::Init (0x00425730):
          * 0x00425A60: 8B CF (mov ecx, edi) -> ecx takes NVRAM restored status (5 = slot)
@@ -959,22 +974,10 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         static const uint8_t jmp_skip_startup_slot[2] = { 0xEB, 0x6E };
         patch_memory(ADDR_STARTUP_MODE_SWITCH_JUMP, jmp_skip_startup_slot, sizeof(jmp_skip_startup_slot));
 
-        /* In sub_4F2BC0 (0x004F2BC0, hardware self-test / initialization completion):
-         * 0x004F2DC7: B9 05 00 00 00 (mov ecx, 5; call sub_425F70) for Station 0
-         * 0x004F2DE7: B9 05 00 00 00 (mov ecx, 5; call sub_425F70) for Station 1
-         * We patch the immediate byte at 0x004F2DC8 and 0x004F2DE8 to 0x00 so it executes
-         * mov ecx, 0; call sub_425F70, eliminating the instant 1-frame flash of Slot Mode on boot!
-         */
-        static const uint8_t mode_zero = 0x00;
-        patch_memory(ADDR_HARDWARE_TEST_MODE_0, &mode_zero, sizeof(mode_zero));
-        patch_memory(ADDR_HARDWARE_TEST_MODE_1, &mode_zero, sizeof(mode_zero));
-
         log_info(
-            "Patched CGameStatus::Init (0x%08X), sub_426370 (0x%08X), and sub_4F2BC0 (0x%08X, 0x%08X) to boot cleanly into Mode 0 (Title / Attract OP)",
+            "Patched CGameStatus::Init (0x%08X) and sub_426370 (0x%08X) to boot cleanly into Mode 0 (Title / Attract OP)",
             ADDR_BOOT_STATUS_INIT_MODE,
-            ADDR_STARTUP_MODE_SWITCH_JUMP,
-            ADDR_HARDWARE_TEST_MODE_0,
-            ADDR_HARDWARE_TEST_MODE_1);
+            ADDR_STARTUP_MODE_SWITCH_JUMP);
     }
 
 
@@ -1219,17 +1222,6 @@ void kpm_io_hook_update(void)
     /* Offset 336 (0x150): Hardware Button bitmask (Channels 0..11) */
     uint16_t btns = kpm_io_get_buttons();
     uint32_t btn_mask = (uint32_t) btns;
-
-    /* If auto-transfer is enabled and player has inserted 100-yen coins, trigger transfer */
-    if (s_cfg.coin_auto_transfer) {
-        uint32_t *p_data = (uint32_t *) 0x00E652D4;
-        if (p_data && *p_data) {
-            uint32_t coin_meter = *((uint32_t *) (*p_data + 9608));
-            if (coin_meter > 0) {
-                btn_mask |= KPM_IO_BTN_TRANSFER;
-            }
-        }
-    }
 
     /* Trace Transfer key transitions with real-time coin & credit balances */
     static bool s_prev_transfer_state = false;

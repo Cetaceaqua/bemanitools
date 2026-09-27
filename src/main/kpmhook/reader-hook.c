@@ -24,6 +24,7 @@ static size_t s_rx_head = 0;
 static size_t s_rx_tail = 0;
 static bool s_is_open = false;
 static bool s_eamio_inited = false;
+static bool s_card_present = false;
 
 /* Win32 real function pointers */
 static HANDLE (WINAPI *real_CreateFileA)(

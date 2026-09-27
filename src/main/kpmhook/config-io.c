@@ -64,11 +64,6 @@
 #define KPMHOOK_CONFIG_IO_DEFAULT_BOOT_TO_TITLE_VALUE \
     true
 
-#define KPMHOOK_CONFIG_IO_COIN_AUTO_TRANSFER_KEY \
-    "coin.auto_transfer"
-#define KPMHOOK_CONFIG_IO_DEFAULT_COIN_AUTO_TRANSFER_VALUE \
-    false
-
 #define KPMHOOK_CONFIG_IO_PLAY_MOVIE_KEY \
     "game.play_movie"
 #define KPMHOOK_CONFIG_IO_DEFAULT_PLAY_MOVIE_VALUE \
@@ -153,12 +148,6 @@ void kpmhook_config_io_init(struct cconfig *config)
         KPMHOOK_CONFIG_IO_BOOT_TO_TITLE_KEY,
         KPMHOOK_CONFIG_IO_DEFAULT_BOOT_TO_TITLE_VALUE,
         "Boot directly into Title / Attract movie on game launch (default: true)");
-
-    cconfig_util_set_bool(
-        config,
-        KPMHOOK_CONFIG_IO_COIN_AUTO_TRANSFER_KEY,
-        KPMHOOK_CONFIG_IO_DEFAULT_COIN_AUTO_TRANSFER_VALUE,
-        "Automatically transfer inserted 100-yen coins to game medals without pressing Transfer button (default: false)");
 
     cconfig_util_set_bool(
         config,
@@ -321,21 +310,10 @@ void kpmhook_config_io_get(
     }
 
     if (!cconfig_util_get_bool(
-            config,
-            KPMHOOK_CONFIG_IO_COIN_AUTO_TRANSFER_KEY,
-            &config_io->coin_auto_transfer,
-            KPMHOOK_CONFIG_IO_DEFAULT_COIN_AUTO_TRANSFER_VALUE)) {
-        log_warning(
-            "Invalid value for key '%s' specified, fallback to default '%d'",
-            KPMHOOK_CONFIG_IO_COIN_AUTO_TRANSFER_KEY,
-            KPMHOOK_CONFIG_IO_DEFAULT_COIN_AUTO_TRANSFER_VALUE);
-    }
-
-    if (!cconfig_util_get_bool(
-            config,
-            KPMHOOK_CONFIG_IO_PLAY_MOVIE_KEY,
-            &config_io->play_movie,
-            KPMHOOK_CONFIG_IO_DEFAULT_PLAY_MOVIE_VALUE)) {
+        config,
+        KPMHOOK_CONFIG_IO_PLAY_MOVIE_KEY,
+        &config_io->play_movie,
+        KPMHOOK_CONFIG_IO_DEFAULT_PLAY_MOVIE_VALUE)) {
         log_warning(
             "Invalid value for key '%s' specified, fallback to default '%d'",
             KPMHOOK_CONFIG_IO_PLAY_MOVIE_KEY,
