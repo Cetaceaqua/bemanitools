@@ -49,9 +49,11 @@
 #define KPMHOOK_CONFIG_IO_DEFAULT_PLAY_MOVIE_VALUE \
     true
 
+#define KPMHOOK_CONFIG_IO_SUB_SCREEN_TOUCH_KEY \
+    "input.sub_screen_touch"
 #define KPMHOOK_CONFIG_IO_UPPER_SCREEN_TOUCH_KEY \
     "input.upper_screen_touch"
-#define KPMHOOK_CONFIG_IO_DEFAULT_UPPER_SCREEN_TOUCH_VALUE \
+#define KPMHOOK_CONFIG_IO_DEFAULT_SUB_SCREEN_TOUCH_VALUE \
     true
 
 
@@ -66,8 +68,8 @@ void kpmhook_config_io_init(struct cconfig *config)
 
     cconfig_util_set_bool(
         config,
-        KPMHOOK_CONFIG_IO_UPPER_SCREEN_TOUCH_KEY,
-        KPMHOOK_CONFIG_IO_DEFAULT_UPPER_SCREEN_TOUCH_VALUE,
+        KPMHOOK_CONFIG_IO_SUB_SCREEN_TOUCH_KEY,
+        KPMHOOK_CONFIG_IO_DEFAULT_SUB_SCREEN_TOUCH_VALUE,
         "Enable touch / mouse mapping on sub-screen (left half: Upper Screen L, right half: Upper Screen R) (default: true)");
 
     cconfig_util_set_str(
@@ -235,12 +237,18 @@ void kpmhook_config_io_get(
 
     if (!cconfig_util_get_bool(
         config,
-        KPMHOOK_CONFIG_IO_UPPER_SCREEN_TOUCH_KEY,
+        KPMHOOK_CONFIG_IO_SUB_SCREEN_TOUCH_KEY,
         &config_io->upper_screen_touch,
-        KPMHOOK_CONFIG_IO_DEFAULT_UPPER_SCREEN_TOUCH_VALUE)) {
-        log_warning(
-            "Invalid value for key '%s' specified, fallback to default '%d'",
+        KPMHOOK_CONFIG_IO_DEFAULT_SUB_SCREEN_TOUCH_VALUE)) {
+        if (!cconfig_util_get_bool(
+            config,
             KPMHOOK_CONFIG_IO_UPPER_SCREEN_TOUCH_KEY,
-            KPMHOOK_CONFIG_IO_DEFAULT_UPPER_SCREEN_TOUCH_VALUE);
+            &config_io->upper_screen_touch,
+            KPMHOOK_CONFIG_IO_DEFAULT_SUB_SCREEN_TOUCH_VALUE)) {
+            log_warning(
+                "Invalid value for key '%s' specified, fallback to default '%d'",
+                KPMHOOK_CONFIG_IO_SUB_SCREEN_TOUCH_KEY,
+                KPMHOOK_CONFIG_IO_DEFAULT_SUB_SCREEN_TOUCH_VALUE);
+        }
     }
 }
