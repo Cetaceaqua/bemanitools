@@ -500,9 +500,8 @@ static HRESULT STDMETHODCALLTYPE my_CheckDeviceType(
     IDirect3D9 *real = (IDirect3D9 *) com_proxy_downcast(self)->real;
     HRESULT hr;
 
-    if (s_windowed) {
-        windowed = TRUE;
-    }
+    /* Always check windowed compatibility for desktop presentation */
+    windowed = TRUE;
 
     hr = IDirect3D9_CheckDeviceType(real, adapter, check_type, display_format, backbuffer_format, windowed);
     log_info("CheckDeviceType: Adapter=%u Type=%u DispFmt=%u BBFmt=%u Win=%d -> hr=0x%08lx",
@@ -529,10 +528,9 @@ static HRESULT STDMETHODCALLTYPE my_Reset(
         if (pp0->BackBufferWidth) backbuf_w = pp0->BackBufferWidth;
         if (pp0->BackBufferHeight) backbuf_h = pp0->BackBufferHeight;
 
-        if (s_windowed) {
-            pp0->Windowed = TRUE;
-            pp0->FullScreen_RefreshRateInHz = 0;
-        }
+        /* Always force Windowed to avoid physical display mode reset to 1024x768 */
+        pp0->Windowed = TRUE;
+        pp0->FullScreen_RefreshRateInHz = 0;
         if (pp0->SwapEffect == D3DSWAPEFFECT_DISCARD && (pp0->Flags & D3DPRESENTFLAG_LOCKABLE_BACKBUFFER)) {
             pp0->Flags &= ~D3DPRESENTFLAG_LOCKABLE_BACKBUFFER;
         }
@@ -753,10 +751,9 @@ static HRESULT STDMETHODCALLTYPE my_CreateDevice(
                  pp0->Windowed, pp0->EnableAutoDepthStencil, pp0->AutoDepthStencilFormat,
                  pp0->Flags, pp0->FullScreen_RefreshRateInHz, pp0->PresentationInterval);
 
-        if (s_windowed) {
-            pp0->Windowed = TRUE;
-            pp0->FullScreen_RefreshRateInHz = 0;
-        }
+        /* Always force Windowed = TRUE to prevent physical display mode change to 1024x768 */
+        pp0->Windowed = TRUE;
+        pp0->FullScreen_RefreshRateInHz = 0;
 
         if (pp0->SwapEffect == D3DSWAPEFFECT_DISCARD && (pp0->Flags & D3DPRESENTFLAG_LOCKABLE_BACKBUFFER)) {
             log_info("  Fixing incompatible D3DPRESENTFLAG_LOCKABLE_BACKBUFFER with D3DSWAPEFFECT_DISCARD on PP[0]");
@@ -775,10 +772,9 @@ static HRESULT STDMETHODCALLTYPE my_CreateDevice(
                  pp1->Windowed, pp1->EnableAutoDepthStencil, pp1->AutoDepthStencilFormat,
                  pp1->Flags, pp1->FullScreen_RefreshRateInHz, pp1->PresentationInterval);
 
-        if (s_windowed) {
-            pp1->Windowed = TRUE;
-            pp1->FullScreen_RefreshRateInHz = 0;
-        }
+        /* Always force Windowed = TRUE for Station 1 additional swapchain */
+        pp1->Windowed = TRUE;
+        pp1->FullScreen_RefreshRateInHz = 0;
 
         if (pp1->SwapEffect == D3DSWAPEFFECT_DISCARD && (pp1->Flags & D3DPRESENTFLAG_LOCKABLE_BACKBUFFER)) {
             log_info("  Fixing incompatible D3DPRESENTFLAG_LOCKABLE_BACKBUFFER with D3DSWAPEFFECT_DISCARD on PP[1]");

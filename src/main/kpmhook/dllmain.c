@@ -102,8 +102,8 @@ BOOL WINAPI DllMain(HMODULE mod, DWORD reason, void *ctx)
     /* Hook sound library loaders to prevent null pointer crash */
     kpm_sound_hook_init();
 
-    /* Hook window creation, positioning, and dragging for dual-screen windowed mode */
-    kpm_window_hook_init();
+    /* Hook window creation, positioning, and dragging for dual-screen windowed or borderless fullscreen */
+    kpm_window_hook_init(config_gfx.windowed);
 
     /* Redirect ANSI string conversions to Shift-JIS (CP932) and fix Japanese fonts */
     kpm_locale_hook_init();

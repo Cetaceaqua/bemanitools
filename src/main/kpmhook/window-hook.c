@@ -11,8 +11,95 @@
 #include "util/defs.h"
 #include "util/log.h"
 
+static bool s_windowed = true;
 static HWND s_station0_hwnd = NULL;
 static HWND s_station1_hwnd = NULL;
+
+static void enable_dpi_awareness(void)
+{
+    static bool s_dpi_enabled = false;
+    if (s_dpi_enabled) return;
+    s_dpi_enabled = true;
+
+    typedef BOOL (WINAPI *pfn_SetProcessDpiAwarenessContext)(HANDLE);
+    HMODULE u32 = GetModuleHandleA("user32.dll");
+    if (u32) {
+        pfn_SetProcessDpiAwarenessContext pSetContext =
+            (pfn_SetProcessDpiAwarenessContext) GetProcAddress(u32, "SetProcessDpiAwarenessContext");
+        if (pSetContext) {
+            pSetContext((HANDLE) -4); /* DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 */
+            log_info("DPI awareness set to Per-Monitor V2");
+            return;
+        }
+    }
+    SetProcessDPIAware();
+    log_info("DPI awareness set to system DPI aware");
+}
+
+struct kpm_mon_info {
+    HMONITOR hmon;
+    RECT rc;
+    bool is_primary;
+};
+
+static struct kpm_mon_info s_mons[8];
+static int s_mon_count = 0;
+
+static BOOL CALLBACK mon_enum_cb(HMONITOR hMon, HDC hdc, LPRECT lprc, LPARAM dwData)
+{
+    if (s_mon_count >= 8) return TRUE;
+    MONITORINFO mi;
+    memset(&mi, 0, sizeof(mi));
+    mi.cbSize = sizeof(mi);
+    if (GetMonitorInfoW(hMon, &mi)) {
+        s_mons[s_mon_count].hmon = hMon;
+        s_mons[s_mon_count].rc = mi.rcMonitor;
+        s_mons[s_mon_count].is_primary = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+        s_mon_count++;
+    }
+    return TRUE;
+}
+
+static void query_monitors(RECT *rc_main, RECT *rc_sub)
+{
+    enable_dpi_awareness();
+    s_mon_count = 0;
+    EnumDisplayMonitors(NULL, NULL, mon_enum_cb, 0);
+
+    /* Default fallback: primary monitor or virtual screen */
+    rc_main->left = 0;
+    rc_main->top = 0;
+    rc_main->right = GetSystemMetrics(SM_CXSCREEN);
+    rc_main->bottom = GetSystemMetrics(SM_CYSCREEN);
+    *rc_sub = *rc_main;
+
+    /* Station 0 gets primary monitor */
+    int primary_idx = -1;
+    for (int i = 0; i < s_mon_count; i++) {
+        if (s_mons[i].is_primary) {
+            *rc_main = s_mons[i].rc;
+            primary_idx = i;
+            break;
+        }
+    }
+
+    /* Station 1 gets the first non-primary monitor */
+    for (int i = 0; i < s_mon_count; i++) {
+        if (i != primary_idx) {
+            *rc_sub = s_mons[i].rc;
+            break;
+        }
+    }
+
+    static bool s_logged = false;
+    if (!s_logged) {
+        s_logged = true;
+        log_info("Detected %d monitor(s): Main=[%ld,%ld,%ld,%ld] Sub=[%ld,%ld,%ld,%ld]",
+                 s_mon_count,
+                 rc_main->left, rc_main->top, rc_main->right, rc_main->bottom,
+                 rc_sub->left, rc_sub->top, rc_sub->right, rc_sub->bottom);
+    }
+}
 
 static void get_station_client_size(HWND hWnd, int *w, int *h)
 {
@@ -217,38 +304,68 @@ static HWND WINAPI my_CreateWindowExW(
         log_info("CreateWindowExW: Station 0 (Main Screen) orig style=0x%08lx ex=0x%08lx size=%dx%d",
                  dwStyle, dwExStyle, nWidth, nHeight);
 
-        /* Give Station 0 full caption, system menu, minimize button, and clean border */
-        dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
-        dwExStyle &= ~WS_EX_TOPMOST;
         lpWindowName = L"KPM Main Screen";
 
-        /* Station 0 client area is always native 1024x768 landscape */
-        int cw = 1024;
-        int ch = 768;
-        RECT r = {0, 0, cw, ch};
-        AdjustWindowRectEx(&r, dwStyle, FALSE, dwExStyle);
-        X = 40;
-        Y = 40;
-        nWidth = r.right - r.left;
-        nHeight = r.bottom - r.top;
+        if (s_windowed) {
+            /* Give Station 0 full caption, system menu, minimize button, and clean border */
+            dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
+            dwExStyle &= ~WS_EX_TOPMOST;
+
+            /* Station 0 client area is always native 1024x768 landscape */
+            int cw = 1024;
+            int ch = 768;
+            RECT r = {0, 0, cw, ch};
+            AdjustWindowRectEx(&r, dwStyle, FALSE, dwExStyle);
+            X = 40;
+            Y = 40;
+            nWidth = r.right - r.left;
+            nHeight = r.bottom - r.top;
+        } else {
+            /* Fullscreen borderless on Primary Monitor */
+            RECT rc_main, rc_sub;
+            query_monitors(&rc_main, &rc_sub);
+
+            dwStyle = WS_POPUP | WS_VISIBLE;
+            dwExStyle &= ~WS_EX_TOPMOST;
+            X = rc_main.left;
+            Y = rc_main.top;
+            nWidth = rc_main.right - rc_main.left;
+            nHeight = rc_main.bottom - rc_main.top;
+            log_info("Station 0 fullscreen bounds: (%d, %d, %d, %d)", X, Y, nWidth, nHeight);
+        }
     } else if (is_sub) {
         log_info("CreateWindowExW: Station 1 (Sub Screen) orig style=0x%08lx ex=0x%08lx size=%dx%d",
                  dwStyle, dwExStyle, nWidth, nHeight);
 
-        /* Give Station 1 also a full window and place it side-by-side next to Station 0 */
-        dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
-        dwExStyle &= ~WS_EX_TOPMOST;
         lpWindowName = L"KPM Sub Screen";
 
-        /* Station 1 is portrait 768x1024 if rotate enabled, else 1024x768 */
-        int cw = kpm_config_get_rotate() ? 768 : 1024;
-        int ch = kpm_config_get_rotate() ? 1024 : 768;
-        RECT r = {0, 0, cw, ch};
-        AdjustWindowRectEx(&r, dwStyle, FALSE, dwExStyle);
-        X = 1100;
-        Y = 40;
-        nWidth = r.right - r.left;
-        nHeight = r.bottom - r.top;
+        if (s_windowed) {
+            /* Give Station 1 also a full window and place it side-by-side next to Station 0 */
+            dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
+            dwExStyle &= ~WS_EX_TOPMOST;
+
+            /* Station 1 is portrait 768x1024 if rotate enabled, else 1024x768 */
+            int cw = kpm_config_get_rotate() ? 768 : 1024;
+            int ch = kpm_config_get_rotate() ? 1024 : 768;
+            RECT r = {0, 0, cw, ch};
+            AdjustWindowRectEx(&r, dwStyle, FALSE, dwExStyle);
+            X = 1100;
+            Y = 40;
+            nWidth = r.right - r.left;
+            nHeight = r.bottom - r.top;
+        } else {
+            /* Fullscreen borderless on Secondary Monitor */
+            RECT rc_main, rc_sub;
+            query_monitors(&rc_main, &rc_sub);
+
+            dwStyle = WS_POPUP | WS_VISIBLE;
+            dwExStyle &= ~WS_EX_TOPMOST;
+            X = rc_sub.left;
+            Y = rc_sub.top;
+            nWidth = rc_sub.right - rc_sub.left;
+            nHeight = rc_sub.bottom - rc_sub.top;
+            log_info("Station 1 fullscreen bounds: (%d, %d, %d, %d)", X, Y, nWidth, nHeight);
+        }
     }
 
     HWND hWnd = real_CreateWindowExW(
@@ -259,9 +376,23 @@ static HWND WINAPI my_CreateWindowExW(
         if (is_main) {
             s_station0_hwnd = hWnd;
             subclass_game_window(hWnd, "Station 0");
+            if (!s_windowed) {
+                RECT rc_main, rc_sub;
+                query_monitors(&rc_main, &rc_sub);
+                real_SetWindowPos(hWnd, HWND_TOP, rc_main.left, rc_main.top,
+                                  rc_main.right - rc_main.left, rc_main.bottom - rc_main.top,
+                                  SWP_SHOWWINDOW);
+            }
         } else if (is_sub) {
             s_station1_hwnd = hWnd;
             subclass_game_window(hWnd, "Station 1");
+            if (!s_windowed) {
+                RECT rc_main, rc_sub;
+                query_monitors(&rc_main, &rc_sub);
+                real_SetWindowPos(hWnd, HWND_TOP, rc_sub.left, rc_sub.top,
+                                  rc_sub.right - rc_sub.left, rc_sub.bottom - rc_sub.top,
+                                  SWP_SHOWWINDOW);
+            }
         }
     }
 
@@ -282,28 +413,50 @@ static BOOL WINAPI my_SetWindowPos(
         hWndInsertAfter = HWND_NOTOPMOST;
     }
 
-    if (hWnd == s_station0_hwnd || hWnd == s_station1_hwnd) {
-        /* Preserve current window position instead of forcing (0, 0) */
-        if (!(uFlags & SWP_NOMOVE)) {
-            RECT cur;
-            if (GetWindowRect(hWnd, &cur)) {
-                if (X <= 0 && Y <= 0) {
-                    X = cur.left;
-                    Y = cur.top;
+    if (!s_windowed) {
+        if (hWnd == s_station0_hwnd) {
+            RECT rc_main, rc_sub;
+            query_monitors(&rc_main, &rc_sub);
+            X = rc_main.left;
+            Y = rc_main.top;
+            cx = rc_main.right - rc_main.left;
+            cy = rc_main.bottom - rc_main.top;
+            uFlags &= ~(SWP_NOMOVE | SWP_NOSIZE);
+            return real_SetWindowPos(hWnd, HWND_TOP, X, Y, cx, cy, uFlags | SWP_SHOWWINDOW);
+        } else if (hWnd == s_station1_hwnd) {
+            RECT rc_main, rc_sub;
+            query_monitors(&rc_main, &rc_sub);
+            X = rc_sub.left;
+            Y = rc_sub.top;
+            cx = rc_sub.right - rc_sub.left;
+            cy = rc_sub.bottom - rc_sub.top;
+            uFlags &= ~(SWP_NOMOVE | SWP_NOSIZE);
+            return real_SetWindowPos(hWnd, HWND_TOP, X, Y, cx, cy, uFlags | SWP_SHOWWINDOW);
+        }
+    } else {
+        if (hWnd == s_station0_hwnd || hWnd == s_station1_hwnd) {
+            /* Preserve current window position instead of forcing (0, 0) */
+            if (!(uFlags & SWP_NOMOVE)) {
+                RECT cur;
+                if (GetWindowRect(hWnd, &cur)) {
+                    if (X <= 0 && Y <= 0) {
+                        X = cur.left;
+                        Y = cur.top;
+                    }
                 }
             }
-        }
 
-        /* Ensure window dimensions match client area */
-        if (!(uFlags & SWP_NOSIZE)) {
-            DWORD style = (DWORD) GetWindowLongPtrW(hWnd, GWL_STYLE);
-            DWORD ex_style = (DWORD) GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
-            int cw, ch;
-            get_station_client_size(hWnd, &cw, &ch);
-            RECT r = {0, 0, cw, ch};
-            AdjustWindowRectEx(&r, style, FALSE, ex_style);
-            cx = r.right - r.left;
-            cy = r.bottom - r.top;
+            /* Ensure window dimensions match client area */
+            if (!(uFlags & SWP_NOSIZE)) {
+                DWORD style = (DWORD) GetWindowLongPtrW(hWnd, GWL_STYLE);
+                DWORD ex_style = (DWORD) GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
+                int cw, ch;
+                get_station_client_size(hWnd, &cw, &ch);
+                RECT r = {0, 0, cw, ch};
+                AdjustWindowRectEx(&r, style, FALSE, ex_style);
+                cx = r.right - r.left;
+                cy = r.bottom - r.top;
+            }
         }
     }
 
@@ -317,9 +470,15 @@ static LONG WINAPI my_SetWindowLongW(
 {
     if (hWnd == s_station0_hwnd || hWnd == s_station1_hwnd) {
         if (nIndex == GWL_STYLE) {
-            /* Keep caption, sysmenu, and minimize box */
-            dwNewLong |= (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE);
-            dwNewLong &= ~WS_POPUP;
+            if (s_windowed) {
+                /* Keep caption, sysmenu, and minimize box */
+                dwNewLong |= (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE);
+                dwNewLong &= ~WS_POPUP;
+            } else {
+                /* Keep borderless popup style in fullscreen mode */
+                dwNewLong = (dwNewLong | WS_POPUP | WS_VISIBLE) &
+                            ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
+            }
         } else if (nIndex == GWL_EXSTYLE) {
             /* Never allow topmost */
             dwNewLong &= ~WS_EX_TOPMOST;
@@ -342,7 +501,17 @@ static BOOL WINAPI my_GetCursorPos(LPPOINT lpPoint)
         /* Convert virtual desktop screen coordinates to Station 0 client coordinates */
         ScreenToClient(s_station0_hwnd, lpPoint);
 
-        /* Clamp to Station 0 native resolution 1024x768 */
+        /* Scale client coordinates to Station 0 native resolution 1024x768 */
+        RECT rc;
+        GetClientRect(s_station0_hwnd, &rc);
+        int cw = rc.right - rc.left;
+        int ch = rc.bottom - rc.top;
+
+        if (cw > 0 && ch > 0) {
+            lpPoint->x = (LONG) (((int64_t) lpPoint->x * 1024) / cw);
+            lpPoint->y = (LONG) (((int64_t) lpPoint->y * 768) / ch);
+        }
+
         if (lpPoint->x < 0) {
             lpPoint->x = 0;
         } else if (lpPoint->x > 1023) {
@@ -387,13 +556,17 @@ static const struct hook_symbol kpm_window_syms[] = {
     },
 };
 
-void kpm_window_hook_init(void)
+void kpm_window_hook_init(bool windowed)
 {
+    s_windowed = windowed;
+    enable_dpi_awareness();
+
     hook_table_apply(
         NULL,
         "user32.dll",
         kpm_window_syms,
         lengthof(kpm_window_syms));
 
-    log_info("Window management hooks installed (dual-window layout & dragging enabled)");
+    log_info("Window management hooks installed (mode=%s, DPI-aware)",
+             windowed ? "windowed" : "borderless fullscreen");
 }

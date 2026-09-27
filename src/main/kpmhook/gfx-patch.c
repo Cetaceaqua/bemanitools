@@ -101,10 +101,11 @@ void kpm_gfx_patch_apply(bool windowed)
     /* Always install binary safety / crash prevention hooks regardless of windowed mode */
     kpm_gfx_install_texture_crash_hook();
 
-    if (!windowed) {
-        log_info("Windowed mode patch disabled by configuration");
-        return;
-    }
+    /* NOTE: Even when gfx.windowed=false (fullscreen), we run Direct3D9 with Windowed=TRUE
+     * because modern Windows 10/11 and WDDM drivers do not support D3DCREATE_ADAPTERGROUP_DEVICE
+     * multi-head exclusive fullscreen on a single GPU. Borderless windowed fullscreen allows
+     * Station 0 to cover Monitor 0 (2560x1440) and Station 1 to cover Monitor 1 (2560x1600)
+     * at native desktop resolutions without altering physical monitor modes to 1024x768. */
 
     /* Patch mov byte ptr ds:[19BD328h], 1 -> mov byte ptr ds:[19BD328h], 0 */
     patch_allowed = 0x00;

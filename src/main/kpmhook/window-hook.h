@@ -12,6 +12,6 @@
  * - Places both station windows side-by-side with titles and frames
  * - Prevents topmost and forced coordinate resets
  */
-void kpm_window_hook_init(void);
+void kpm_window_hook_init(bool windowed);
 
 #endif
