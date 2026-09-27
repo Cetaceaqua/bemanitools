@@ -145,9 +145,18 @@ bool kpm_io_read_inputs(void)
     /* Insert Card: mapped bit 11 */
     bool insert_key = (pack & (1ULL << 11)) != 0;
     if (insert_key && !s_insert_card_last) {
-        s_card_placed = true;
-        if (s_log_info) {
-            s_log_info("kpmio", "Card PLACED on reader tray (config mapped key)");
+        FILE *f = fopen("card0.txt", "r");
+        if (!f) f = fopen("card.txt", "r");
+        if (f) {
+            fclose(f);
+            s_card_placed = true;
+            if (s_log_info) {
+                s_log_info("kpmio", "Card PLACED on reader tray (config mapped key)");
+            }
+        } else {
+            if (s_log_info) {
+                s_log_info("kpmio", "Insert card key ignored: no card0.txt or card.txt configured");
+            }
         }
     }
     s_insert_card_last = insert_key;
@@ -155,9 +164,11 @@ bool kpm_io_read_inputs(void)
     /* Eject Card: mapped bit 12 */
     bool eject_key = (pack & (1ULL << 12)) != 0;
     if (eject_key && !s_eject_card_last) {
-        s_card_placed = false;
-        if (s_log_info) {
-            s_log_info("kpmio", "Card EJECTED from reader tray (config mapped key)");
+        if (s_card_placed) {
+            s_card_placed = false;
+            if (s_log_info) {
+                s_log_info("kpmio", "Card EJECTED from reader tray (config mapped key)");
+            }
         }
     }
     s_eject_card_last = eject_key;

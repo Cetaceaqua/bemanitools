@@ -162,59 +162,64 @@ static void handle_reader_write(const uint8_t *cmd, DWORD len)
         bool key_eject  = ((GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0 ||
                            (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0);
 
+        uint8_t uid[8] = {0};
+        uint8_t kpm_card_type = 0;
+        bool has_configured_card = false;
+
+        /* Check if a card is configured via eamio or local card0.txt / card.txt */
+        uint8_t card_type = eam_io_read_card(0, uid, sizeof(uid));
+        if (card_type != EAM_IO_CARD_NONE) {
+            has_configured_card = true;
+            kpm_card_type = (card_type == EAM_IO_CARD_FELICA) ? 1 : 0;
+        } else {
+            FILE *f = fopen("card0.txt", "r");
+            if (!f) f = fopen("card.txt", "r");
+            if (f) {
+                char hex_str[32] = {0};
+                if (fgets(hex_str, sizeof(hex_str), f)) {
+                    unsigned int b[8];
+                    if (sscanf(hex_str, "%02x%02x%02x%02x%02x%02x%02x%02x",
+                               &b[0], &b[1], &b[2], &b[3], &b[4], &b[5], &b[6], &b[7]) == 8) {
+                        for (int i = 0; i < 8; i++) uid[i] = (uint8_t) b[i];
+                        has_configured_card = true;
+                        kpm_card_type = (uid[0] == 0xE0 && uid[1] == 0x04) ? 0 : 1;
+                    }
+                }
+                fclose(f);
+            }
+        }
+
         if (key_insert && !s_key_insert_last) {
-            kpm_io_set_card_placed(true);
-            log_info("Virtual RFID Tray: Card PLACED on reader tray (+ / Insert hotkey)");
+            if (has_configured_card) {
+                kpm_io_set_card_placed(true);
+                log_info("Virtual RFID Tray: Card PLACED on reader tray (+ / Insert hotkey)");
+            } else {
+                log_info("Virtual RFID Tray: Insert key ignored - no card file (card0.txt/card.txt) configured");
+            }
         }
         s_key_insert_last = key_insert;
 
         if (key_eject && !s_key_eject_last) {
-            kpm_io_set_card_placed(false);
-            log_info("Virtual RFID Tray: Card EJECTED from reader tray (- / Delete hotkey)");
+            if (kpm_io_is_card_placed()) {
+                kpm_io_set_card_placed(false);
+                log_info("Virtual RFID Tray: Card EJECTED from reader tray (- / Delete hotkey)");
+            }
         }
         s_key_eject_last = key_eject;
 
-        if (sensor != 0) {
+        if (sensor != 0 && has_configured_card) {
             kpm_io_set_card_placed(true);
         }
 
         bool card_placed = kpm_io_is_card_placed();
         bool card_present = false;
-        uint8_t uid[8];
-        uint8_t kpm_card_type = 0;
 
-        if (card_placed) {
-            memset(uid, 0, sizeof(uid));
-            uint8_t card_type = eam_io_read_card(0, uid, sizeof(uid));
-
-            if (card_type != EAM_IO_CARD_NONE) {
-                card_present = true;
-                /* KPM protocol: 0 = ISO15693 (e-Amusement Pass), 1 = FeliCa */
-                kpm_card_type = (card_type == EAM_IO_CARD_FELICA) ? 1 : 0;
-            } else {
-                /* Reliable fallback if eamio has not loaded card file: read card0.txt or card.txt */
-                FILE *f = fopen("card0.txt", "r");
-                if (!f) f = fopen("card.txt", "r");
-                if (f) {
-                    char hex_str[32] = {0};
-                    if (fgets(hex_str, sizeof(hex_str), f)) {
-                        unsigned int b[8];
-                        if (sscanf(hex_str, "%02x%02x%02x%02x%02x%02x%02x%02x",
-                                   &b[0], &b[1], &b[2], &b[3], &b[4], &b[5], &b[6], &b[7]) == 8) {
-                            for (int i = 0; i < 8; i++) uid[i] = (uint8_t) b[i];
-                            card_present = true;
-                        }
-                    }
-                    fclose(f);
-                }
-                if (!card_present) {
-                    const uint8_t default_uid[8] = { 0xE0, 0x04, 0x01, 0x00, 0x23, 0x7C, 0x93, 0x16 };
-                    memcpy(uid, default_uid, 8);
-                    card_present = true;
-                }
-                kpm_card_type = (uid[0] == 0xE0 && uid[1] == 0x04) ? 0 : 1;
-            }
+        if (card_placed && has_configured_card) {
+            card_present = true;
         } else {
+            if (card_placed && !has_configured_card) {
+                kpm_io_set_card_placed(false);
+            }
             s_logged_card = false;
         }
 

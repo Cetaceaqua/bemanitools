@@ -16,14 +16,10 @@ enum kpmhook_cabinet_girl {
 
 struct kpmhook_config_io {
     bool disable_debug_keys;
-    bool lights_normalized;
-    bool lights_raw_serial;
-    char lights_raw_port[32];
-    int lights_raw_baud;
+    char light_port[32];
+    int light_baud;
     char card_port[32];
     enum kpmhook_cabinet_girl cabinet_girl;
-    int boot_credits;
-    uint8_t attract_mode;
     bool show_secret_menu;
     int attract_timeout;
     bool boot_to_title;

@@ -23,7 +23,7 @@
 #define ADDR_DWORD_1ACFCBC        0x01ACFCBC
 #define ADDR_CHECK_PCSUB_MODE_JUMP   0x0041ECF7
 #define ADDR_NO_SUBBOARD_CHECK_CALL  0x0041F4DE
-#define ADDR_BOOT_CREDITS_VALUE   0x0041F5E3
+#define ADDR_COMMON_INIT_TUTORIAL_FLAG 0x0044AD75
 #define ADDR_CHECK_EAMUSE_PLUG_JUMP  0x0041FDC6
 #define ADDR_PCSUB_GET_NET_PLUG_ID   0x005CA870
 #define ADDR_HOPPER_PAY_STOP_FUNC    0x005C93A0
@@ -88,23 +88,9 @@
  * Strips 8..10 (LEDs 80..109): SIDE LED RIGHT 01..03
  */
 
-#pragma pack(push, 1)
-struct rgb_val {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-};
-#pragma pack(pop)
-
 static bool s_io_initialized = false;
 static struct kpmhook_config_io s_cfg;
-static HANDLE s_raw_serial_handle = INVALID_HANDLE_VALUE;
-
-/* 110 LED color buffer */
-static struct rgb_val s_led_buffer[TOTAL_LEDS];
-static uint32_t s_current_anim_code = 8; /* Default to normal play lighting */
-static DWORD s_anim_start_tick = 0;
-static struct rgb_val s_heroine_color = { 30, 144, 255 }; /* Default Manaka Sky Blue */
+static HANDLE s_light_serial = INVALID_HANDLE_VALUE;
 static uint8_t s_cabinet_jumper_byte = 0x02; /* Default Manaka: bit 1 (0x02) */
 
 static void patch_memory(uintptr_t addr, const uint8_t *bytes, size_t len)
@@ -323,16 +309,16 @@ static char __fastcall my_GetButtonState(void *this_ptr, void *edx_unused, int c
     return 0;
 }
 
-static void init_raw_serial(const struct kpmhook_config_io *cfg)
+static void init_light_serial(const struct kpmhook_config_io *cfg)
 {
-    if (!cfg->lights_raw_serial) {
+    if (!cfg->light_port[0]) {
         return;
     }
 
     char port_path[64];
-    snprintf(port_path, sizeof(port_path), "\\\\.\\%s", cfg->lights_raw_port);
+    snprintf(port_path, sizeof(port_path), "\\\\.\\%s", cfg->light_port);
 
-    s_raw_serial_handle = CreateFileA(
+    s_light_serial = CreateFileA(
         port_path,
         GENERIC_READ | GENERIC_WRITE,
         0,
@@ -341,10 +327,10 @@ static void init_raw_serial(const struct kpmhook_config_io *cfg)
         FILE_ATTRIBUTE_NORMAL,
         NULL);
 
-    if (s_raw_serial_handle == INVALID_HANDLE_VALUE) {
+    if (s_light_serial == INVALID_HANDLE_VALUE) {
         log_warning(
-            "Could not open raw serial LED port '%s' (Error %lu)",
-            cfg->lights_raw_port,
+            "Could not open illumination serial port '%s' (Error %lu)",
+            cfg->light_port,
             GetLastError());
         return;
     }
@@ -352,23 +338,23 @@ static void init_raw_serial(const struct kpmhook_config_io *cfg)
     DCB dcb;
     memset(&dcb, 0, sizeof(dcb));
     dcb.DCBlength = sizeof(dcb);
-    if (GetCommState(s_raw_serial_handle, &dcb)) {
-        dcb.BaudRate = cfg->lights_raw_baud > 0 ? cfg->lights_raw_baud : CBR_115200;
+    if (GetCommState(s_light_serial, &dcb)) {
+        dcb.BaudRate = cfg->light_baud > 0 ? cfg->light_baud : CBR_115200;
         dcb.ByteSize = 8;
         dcb.Parity = NOPARITY;
         dcb.StopBits = ONESTOPBIT;
-        SetCommState(s_raw_serial_handle, &dcb);
+        SetCommState(s_light_serial, &dcb);
     }
 
     COMMTIMEOUTS timeouts;
     memset(&timeouts, 0, sizeof(timeouts));
     timeouts.WriteTotalTimeoutConstant = 10;
-    SetCommTimeouts(s_raw_serial_handle, &timeouts);
+    SetCommTimeouts(s_light_serial, &timeouts);
 
     log_info(
-        "Raw serial LED stream active on %s at %d baud (110 LEDs / 330 bytes payload)",
-        cfg->lights_raw_port,
-        cfg->lights_raw_baud);
+        "Cabinet illumination serial pass-through active on %s at %d baud",
+        cfg->light_port,
+        cfg->light_baud);
 }
 
 static void reset_station_idle_timers(uint8_t *st, DWORD now)
@@ -693,13 +679,7 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         "Patched CheckPCSUB step at 0x%08X to force step 700 (NO_SUBBOARD=0 bypass active)",
         ADDR_CHECK_PCSUB_MODE_JUMP);
 
-    /* Patch boot initial credit grant (sub_41F410).
-     * By default the game gives 1000 credits on boot if NO_SUBBOARD is enabled.
-     * Setting this to 0 ensures authentic arcade operating mode waiting for medals.
-     */
-    uint32_t boot_cred = (uint32_t) cfg->boot_credits;
-    patch_memory(ADDR_BOOT_CREDITS_VALUE, (const uint8_t *) &boot_cred, sizeof(boot_cred));
-    log_info("Configured boot initial credits: %u (at 0x%08X)", boot_cred, ADDR_BOOT_CREDITS_VALUE);
+
 
     /* Hook sub_41F410 CheckInitError NO_SUBBOARD check to protect SRAM settings */
     patch_call(ADDR_NO_SUBBOARD_CHECK_CALL, my_check_no_subboard);
@@ -828,6 +808,13 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         "Patched 30s coin dwell auto-payout jump at 0x%08X to unconditional bypass",
         ADDR_COIN_DWELL_TIMEOUT_JUMP);
 
+    /* Patch 0x0044AD75: In CGameCommon::Init, initialize m_bShowTutorial to 0 instead of 1.
+     * Originally: C6 86 30 05 00 00 01 (mov byte ptr [esi+530h], 1)
+     * Replace with: C6 86 30 05 00 00 00 (mov byte ptr [esi+530h], 0)
+     */
+    static const uint8_t patch_common_no_tutorial[7] = { 0xC6, 0x86, 0x30, 0x05, 0x00, 0x00, 0x00 };
+    patch_memory(ADDR_COMMON_INIT_TUTORIAL_FLAG, patch_common_no_tutorial, sizeof(patch_common_no_tutorial));
+
     /* Patch 0x004A270C: In CGameTitle_Update, prevent setting m_bShowTutorial ([g_pCGameCommon + 530h]) to 1.
      * Originally: C6 82 30 05 00 00 01 (mov byte ptr [edx+530h], 1)
      * Replace with: C6 82 30 05 00 00 00 (mov byte ptr [edx+530h], 0)
@@ -845,8 +832,8 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         0xEB, 0x39, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
     };
     patch_memory(ADDR_PANEL_CHECK_TUTORIAL_FLAG, patch_panel_skip_tutorial, sizeof(patch_panel_skip_tutorial));
-    log_info("Patched tutorial trigger flags at 0x%08X and 0x%08X to protect Attract loop cycling",
-             ADDR_TITLE_SET_TUTORIAL_FLAG, ADDR_PANEL_CHECK_TUTORIAL_FLAG);
+    log_info("Patched tutorial startup triggers at 0x%08X, 0x%08X, 0x%08X (manual tutorial retained)",
+             ADDR_COMMON_INIT_TUTORIAL_FLAG, ADDR_TITLE_SET_TUTORIAL_FLAG, ADDR_PANEL_CHECK_TUTORIAL_FLAG);
 
     /* Patch 0x00403563 & 0x0040356C: In sub_403550, un-gate CMainApplication state checks.
      * Originally: 74 2F (jz 0x403594) and 74 26 (jz 0x403594).
@@ -987,190 +974,26 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
     log_info("Hooked NVRAM memset at 0x%08X to kpm_nvram_init", ADDR_NVRAM_MEMSET_CALL);
 
 
-    init_raw_serial(cfg);
-    s_anim_start_tick = GetTickCount();
+    init_light_serial(cfg);
 
     switch (cfg->cabinet_girl) {
         case KPMHOOK_CABINET_GIRL_RINKO:
             s_cabinet_jumper_byte = 0x01; /* Bit 0: Rinko (Kanojyo ID 1) */
-            s_heroine_color = (struct rgb_val) { 50, 205, 50 }; /* Official Rinko Lime-Green (#78BB00) */
             log_info("PCSub cabinet hardware jumper: RINKO (Jumper=0x01, GirlID=1)");
             break;
         case KPMHOOK_CABINET_GIRL_NENE:
             s_cabinet_jumper_byte = 0x04; /* Bit 2: Nene (Kanojyo ID 2) */
-            s_heroine_color = (struct rgb_val) { 255, 105, 180 }; /* Official Nene Magenta-Pink (#E4007F) */
             log_info("PCSub cabinet hardware jumper: NENE (Jumper=0x04, GirlID=2)");
             break;
         case KPMHOOK_CABINET_GIRL_MANAKA:
         default:
             s_cabinet_jumper_byte = 0x02; /* Bit 1: Manaka (Kanojyo ID 0) */
-            s_heroine_color = (struct rgb_val) { 30, 144, 255 }; /* Official Manaka Sky Blue (#00A0E9) */
             log_info("PCSub cabinet hardware jumper: MANAKA (Jumper=0x02, GirlID=0)");
             break;
     }
 
     s_io_initialized = true;
     log_info("PCSub arcade I/O and lighting subsystem initialized successfully");
-}
-
-static void set_zone_color(int start_led, int count, uint8_t r, uint8_t g, uint8_t b)
-{
-    for (int i = 0; i < count && (start_led + i) < TOTAL_LEDS; i++) {
-        s_led_buffer[start_led + i].r = r;
-        s_led_buffer[start_led + i].g = g;
-        s_led_buffer[start_led + i].b = b;
-    }
-}
-
-static void set_all_leds(uint8_t r, uint8_t g, uint8_t b)
-{
-    set_zone_color(0, TOTAL_LEDS, r, g, b);
-}
-
-static void handle_illumination_code(uint32_t code, uint32_t p1, uint32_t p2)
-{
-    s_current_anim_code = code;
-    s_anim_start_tick = GetTickCount();
-
-    /* Extract heroine custom color if supplied in payload (e.g. Code 16 in sub_45EAE0) */
-    if (code == 16 && (p2 & 0xFFFFFF) != 0) {
-        s_heroine_color.b = (uint8_t) (p2 & 0xFF);
-        s_heroine_color.g = (uint8_t) ((p2 >> 4) & 0xFF);
-        s_heroine_color.r = (uint8_t) ((p2 >> 8) & 0xFF);
-    }
-
-    log_info("Cabinet illumination code changed: code=%u, p1=%u, p2=0x%08X", code, p1, p2);
-}
-
-static void update_led_animations(DWORD now)
-{
-    DWORD elapsed = now - s_anim_start_tick;
-    float t = (float) (now % 2000) / 2000.0f; /* 2.0s period */
-
-    switch (s_current_anim_code) {
-        case 1:
-        case 14: /* All Off / Reset */
-            set_all_leds(0, 0, 0);
-            break;
-
-        case 2:
-        case 3:
-        case 4: /* Test / Menu solid white illumination */
-            set_all_leds(200, 200, 220);
-            break;
-
-        case 8: { /* Mode 8: Manaka Base Lighting (sub_47CC70 when GirlID=0, Sky Blue theme) */
-            float breath = 0.8f + 0.2f * sinf((float) (now % 3000) * (3.14159f / 1500.0f));
-            set_zone_color(0, 30, (uint8_t) (30 * breath), (uint8_t) (144 * breath), (uint8_t) (255 * breath));
-            set_zone_color(30, 20, (uint8_t) (180 * breath), (uint8_t) (220 * breath), (uint8_t) (255 * breath));
-            set_zone_color(50, 30, (uint8_t) (20 * breath), (uint8_t) (100 * breath), (uint8_t) (200 * breath));
-            set_zone_color(80, 30, (uint8_t) (20 * breath), (uint8_t) (100 * breath), (uint8_t) (200 * breath));
-            break;
-        }
-
-        case 9: { /* Mode 9: Rinko Base Lighting (sub_47CC70 when GirlID=1, Lime Green theme) */
-            float breath = 0.8f + 0.2f * sinf((float) (now % 3000) * (3.14159f / 1500.0f));
-            set_zone_color(0, 30, (uint8_t) (50 * breath), (uint8_t) (205 * breath), (uint8_t) (50 * breath));
-            set_zone_color(30, 20, (uint8_t) (200 * breath), (uint8_t) (255 * breath), (uint8_t) (180 * breath));
-            set_zone_color(50, 30, (uint8_t) (30 * breath), (uint8_t) (150 * breath), (uint8_t) (30 * breath));
-            set_zone_color(80, 30, (uint8_t) (30 * breath), (uint8_t) (150 * breath), (uint8_t) (30 * breath));
-            break;
-        }
-
-        case 10: { /* Mode 10: Nene Base Lighting (sub_47CC70 when GirlID=2, Magenta Pink theme) */
-            float breath = 0.8f + 0.2f * sinf((float) (now % 3000) * (3.14159f / 1500.0f));
-            set_zone_color(0, 30, (uint8_t) (255 * breath), (uint8_t) (105 * breath), (uint8_t) (180 * breath));
-            set_zone_color(30, 20, (uint8_t) (255 * breath), (uint8_t) (200 * breath), (uint8_t) (220 * breath));
-            set_zone_color(50, 30, (uint8_t) (200 * breath), (uint8_t) (50 * breath), (uint8_t) (120 * breath));
-            set_zone_color(80, 30, (uint8_t) (200 * breath), (uint8_t) (50 * breath), (uint8_t) (120 * breath));
-            break;
-        }
-
-        case 15: { /* Attract / Title Loop (sub_4A27E0): Running Rainbow Wave across LEDs */
-            for (int i = 0; i < TOTAL_LEDS; i++) {
-                float hue = (float) ((now / 8 + i * 8) % 360);
-                float rad = hue * 3.14159f / 180.0f;
-                uint8_t r = (uint8_t) (127.0f + 127.0f * sinf(rad));
-                uint8_t g = (uint8_t) (127.0f + 127.0f * sinf(rad + 2.094f));
-                uint8_t b = (uint8_t) (127.0f + 127.0f * sinf(rad + 4.188f));
-                s_led_buffer[i].r = r;
-                s_led_buffer[i].g = g;
-                s_led_buffer[i].b = b;
-            }
-            break;
-        }
-
-        case 35:
-        case 36:
-        case 47:
-        case 48: { /* ATARI / Bonus / Fever Win Celebration (sub_49DE90/49DEE0): Rapid Sparkle & Strobe */
-            bool strobe = ((now / 75) % 2) == 0;
-            uint8_t intensity = strobe ? 255 : 40;
-            /* Alternate gold / pink / cyan bursts */
-            uint8_t phase = (now / 300) % 3;
-            if (phase == 0) {
-                set_all_leds(intensity, intensity, 0); /* Gold */
-            } else if (phase == 1) {
-                set_all_leds(intensity, 40, intensity); /* Magenta */
-            } else {
-                set_all_leds(0, intensity, intensity); /* Cyan */
-            }
-            break;
-        }
-
-        case 16:
-        case 17:
-        case 18: { /* Girlfriend Interactive Touch / Upper Screen IR: Heartbeat Pulse */
-            float pulse = 0.5f + 0.5f * sinf((float) (now % 800) * (3.14159f / 400.0f));
-            uint8_t r = (uint8_t) (s_heroine_color.r * (0.3f + 0.7f * pulse));
-            uint8_t g = (uint8_t) (s_heroine_color.g * (0.3f + 0.7f * pulse));
-            uint8_t b = (uint8_t) (s_heroine_color.b * (0.3f + 0.7f * pulse));
-            /* Focus pulse on Screen LEDs (0..29) and Front Pillars (30..49) */
-            set_zone_color(0, 30, r, g, b);
-            set_zone_color(30, 20, r, g, b);
-            set_zone_color(50, 30, (uint8_t) (r * 0.5f), (uint8_t) (g * 0.5f), (uint8_t) (b * 0.5f));
-            set_zone_color(80, 30, (uint8_t) (r * 0.5f), (uint8_t) (g * 0.5f), (uint8_t) (b * 0.5f));
-            break;
-        }
-
-        case 43:
-        case 44:
-        case 45:
-        case 46: { /* Date Event Level 1..4 / Normal Slot Ambient (sub_47CC70): Warm Romance glow */
-            float breath = 0.6f + 0.4f * sinf((float) (now % 1500) * (3.14159f / 750.0f));
-            uint8_t r = (uint8_t) (255 * breath);
-            uint8_t g = (uint8_t) (130 * breath);
-            uint8_t b = (uint8_t) (160 * breath);
-            set_all_leds(r, g, b);
-            break;
-        }
-
-        default: { /* Fallback ambient */
-            float breath = 0.8f + 0.2f * sinf((float) (now % 3000) * (3.14159f / 1500.0f));
-            set_zone_color(0, 30, (uint8_t) (s_heroine_color.r * breath), (uint8_t) (s_heroine_color.g * breath), (uint8_t) (s_heroine_color.b * breath));
-            set_zone_color(30, 20, (uint8_t) (150 * breath), (uint8_t) (150 * breath), (uint8_t) (150 * breath));
-            set_zone_color(50, 30, (uint8_t) (100 * breath), (uint8_t) (100 * breath), (uint8_t) (100 * breath));
-            set_zone_color(80, 30, (uint8_t) (100 * breath), (uint8_t) (100 * breath), (uint8_t) (100 * breath));
-            break;
-        }
-    }
-}
-
-static void send_raw_serial_frame(void)
-{
-    if (s_raw_serial_handle == INVALID_HANDLE_VALUE) {
-        return;
-    }
-
-    uint8_t frame[2 + TOTAL_LEDS * 3 + 2];
-    frame[0] = 0xAA;
-    frame[1] = 0x55;
-    memcpy(&frame[2], s_led_buffer, TOTAL_LEDS * 3);
-    frame[2 + TOTAL_LEDS * 3] = 0x55;
-    frame[3 + TOTAL_LEDS * 3] = 0xAA;
-
-    DWORD written;
-    WriteFile(s_raw_serial_handle, frame, sizeof(frame), &written, NULL);
 }
 
 void kpm_io_hook_update(void)
@@ -1318,22 +1141,18 @@ void kpm_io_hook_update(void)
         }
     }
 
-    /* Inject attract mode setting (USE GAME MODE) and ensure AGING MODE is clear:
-     * *(g_pStationCtx_0 + 27): 0=BOTH ALT, 1=BOTH PANEL, 2=BOTH SLOT, 3=PANEL ONLY, 4=SLOT ONLY.
+    /* Ensure AGING MODE is clear:
      * *(g_pStationCtx_0 + 144): AGING MODE (must be 0 to avoid auto-play / auto-credits).
      */
     uint32_t *p_ctx0 = (uint32_t *) ADDR_STATION_CTX_0;
     if (p_ctx0 && *p_ctx0) {
         uint8_t *ctx0 = (uint8_t *) (*p_ctx0);
-        ctx0[27] = (uint8_t) s_cfg.attract_mode;
         ctx0[144] = 0;
         ctx0[40] = 1; /* Station eamuse enable */
         ctx0[42] = 1;
         ctx0[14] = 1; /* Medal payout enable for sub_4018A0 */
         ctx0[13] = 0; /* Disable pay-stop abort button */
         ctx0[12] = 0; /* Clear hopper overflow error flag */
-        ctx0[15560] = 0; /* 0x3CC8: TUTORIAL PLAYING */
-        ctx0[15561] = 0; /* 0x3CC9: TUTORIAL PANEL */
     }
     uint32_t *p_ctx1 = (uint32_t *) ADDR_STATION_CTX_1;
     if (p_ctx1 && *p_ctx1) {
@@ -1342,8 +1161,6 @@ void kpm_io_hook_update(void)
         ctx1[14] = 1;
         ctx1[13] = 0;
         ctx1[12] = 0;
-        ctx1[15560] = 0;
-        ctx1[15561] = 0;
     }
     uint32_t *p_ctx2 = (uint32_t *) ADDR_STATION_CTX_2;
     if (p_ctx2 && *p_ctx2) {
@@ -1352,14 +1169,6 @@ void kpm_io_hook_update(void)
         ctx2[14] = 1;
         ctx2[13] = 0;
         ctx2[12] = 0;
-        ctx2[15560] = 0;
-        ctx2[15561] = 0;
-    }
-
-    /* Clear first-play / tutorial flag in CGameCommon (+0x530) */
-    uint32_t *p_common = (uint32_t *) 0x00E652D4;
-    if (p_common && *p_common) {
-        *((uint8_t *) (*p_common + 0x530)) = 0;
     }
 
     /* Keep CEamuseControl station enable active (natural network status driven by eam_if) */
@@ -1623,13 +1432,16 @@ void kpm_io_hook_update(void)
         uint32_t code = cmd[0] & 0xFFFF;
         uint32_t p1 = cmd[1];
         uint32_t p2 = cmd[2];
-        handle_illumination_code(code, p1, p2);
+
+        log_info("Cabinet illumination command: code=%u, p1=%u, p2=0x%08X", code, p1, p2);
+
+        if (s_light_serial != INVALID_HANDLE_VALUE) {
+            uint32_t packet[3] = { code, p1, p2 };
+            DWORD written = 0;
+            WriteFile(s_light_serial, packet, sizeof(packet), &written, NULL);
+        }
     }
     *((uint16_t *) (subwrap_base + 530)) = head;
-
-    /* Update dynamic LED illumination patterns */
-    DWORD now = GetTickCount();
-    update_led_animations(now);
 
     /* Direct hardware discrete lamps: Offsets 356..366 (11 discrete channels) */
     uint32_t lamp_bits = 0;
@@ -1640,74 +1452,20 @@ void kpm_io_hook_update(void)
         }
     }
 
-    /* Normalized zone RGB calculations (Channels 11..22) */
-    if (s_cfg.lights_normalized) {
-        uint32_t r_sum, g_sum, b_sum;
-
-        /* Screen Zone: LEDs 0..29 */
-        r_sum = g_sum = b_sum = 0;
-        for (int i = 0; i < 30; i++) {
-            r_sum += s_led_buffer[i].r;
-            g_sum += s_led_buffer[i].g;
-            b_sum += s_led_buffer[i].b;
-        }
-        if ((r_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SCREEN_R;
-        if ((g_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SCREEN_G;
-        if ((b_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SCREEN_B;
-
-        /* Front Zone: LEDs 30..49 */
-        r_sum = g_sum = b_sum = 0;
-        for (int i = 30; i < 50; i++) {
-            r_sum += s_led_buffer[i].r;
-            g_sum += s_led_buffer[i].g;
-            b_sum += s_led_buffer[i].b;
-        }
-        if ((r_sum / 20) > 40) lamp_bits |= KPM_IO_LAMP_FRONT_R;
-        if ((g_sum / 20) > 40) lamp_bits |= KPM_IO_LAMP_FRONT_G;
-        if ((b_sum / 20) > 40) lamp_bits |= KPM_IO_LAMP_FRONT_B;
-
-        /* Side Left Zone: LEDs 50..79 */
-        r_sum = g_sum = b_sum = 0;
-        for (int i = 50; i < 80; i++) {
-            r_sum += s_led_buffer[i].r;
-            g_sum += s_led_buffer[i].g;
-            b_sum += s_led_buffer[i].b;
-        }
-        if ((r_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SIDE_L_R;
-        if ((g_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SIDE_L_G;
-        if ((b_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SIDE_L_B;
-
-        /* Side Right Zone: LEDs 80..109 */
-        r_sum = g_sum = b_sum = 0;
-        for (int i = 80; i < 110; i++) {
-            r_sum += s_led_buffer[i].r;
-            g_sum += s_led_buffer[i].g;
-            b_sum += s_led_buffer[i].b;
-        }
-        if ((r_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SIDE_R_R;
-        if ((g_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SIDE_R_G;
-        if ((b_sum / 30) > 40) lamp_bits |= KPM_IO_LAMP_SIDE_R_B;
-    }
-
     static uint32_t s_last_logged_lamp_bits = 0xFFFFFFFF;
     if (lamp_bits != s_last_logged_lamp_bits) {
         log_info(
-            "Lamp bits changed: 0x%08X (Btns: 0x%02X, POP: 0x%02X, Zones: 0x%03X)",
+            "Lamp bits changed: 0x%03X (Btns: 0x%02X, POP: 0x%02X)",
             lamp_bits,
             lamp_bits & 0x1F,
-            (lamp_bits >> 5) & 0x3F,
-            (lamp_bits >> 11) & 0xFFF);
+            (lamp_bits >> 5) & 0x3F);
         s_last_logged_lamp_bits = lamp_bits;
     }
 
     kpm_io_set_lamps(lamp_bits);
 
-    /* Push raw 110-LED frame to DIY serial port if enabled */
-    if (s_cfg.lights_raw_serial) {
-        send_raw_serial_frame();
-    }
-
     /* Periodically persist battery-backed SRAM NVRAM if modified */
+    DWORD now = GetTickCount();
     if (now - s_last_nvram_sync_tick >= 2000) {
         s_last_nvram_sync_tick = now;
         kpm_nvram_flush();
@@ -1719,9 +1477,9 @@ void kpm_io_hook_fini(void)
     log_info("Flushing battery-backed SRAM NVRAM and finalizing I/O subsystems...");
     kpm_nvram_flush();
 
-    if (s_raw_serial_handle != INVALID_HANDLE_VALUE) {
-        CloseHandle(s_raw_serial_handle);
-        s_raw_serial_handle = INVALID_HANDLE_VALUE;
+    if (s_light_serial != INVALID_HANDLE_VALUE) {
+        CloseHandle(s_light_serial);
+        s_light_serial = INVALID_HANDLE_VALUE;
     }
 }
 

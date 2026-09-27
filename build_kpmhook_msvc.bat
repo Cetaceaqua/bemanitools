@@ -106,7 +106,7 @@ if errorlevel 1 exit /b 1
 
 echo.
 echo [2/6] Building kpmio.dll...
-cl /nologo /O2 /MT /W3 /I src /I src/main /Fo:%OBJDIR%\kpmio.obj /c src\main\kpmio\kpmio.c
+cl /nologo /O2 /MT /W3 /I src /I src/main /D_CRT_SECURE_NO_WARNINGS /Fo:%OBJDIR%\kpmio.obj /c src\main\kpmio\kpmio.c
 if errorlevel 1 exit /b 1
 
 link /nologo /DLL /DEF:src\main\kpmio\kpmio.def /OUT:%OUTDIR%\kpmio.dll /IMPLIB:%OUTDIR%\kpmio.lib ^
@@ -341,7 +341,7 @@ if exist "%DEST%" (
     copy /Y %OUTDIR%\inject.exe "%DEST%\" >nul
     copy /Y dist\kpm\gamestart.bat "%DEST%\" >nul
     copy /Y dist\kpm\config.bat "%DEST%\" >nul
-    if not exist "%DEST%\kpmhook.conf" copy /Y dist\kpm\kpmhook.conf "%DEST%\" >nul
+    copy /Y dist\kpm\kpmhook.conf "%DEST%\" >nul
     if not exist "%DEST%\eamhook.conf" copy /Y dist\kpm\eamhook.conf "%DEST%\" >nul
     if exist "%DEST%\eamuse\eamhook.dll" del /F "%DEST%\eamuse\eamhook.dll"
     echo Deploy complete.

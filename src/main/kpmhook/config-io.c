@@ -9,24 +9,14 @@
 #define KPMHOOK_CONFIG_IO_DEFAULT_DISABLE_DEBUG_KEYS_VALUE \
     true
 
-#define KPMHOOK_CONFIG_IO_LIGHTS_NORMALIZED_KEY \
-    "light.normalized"
-#define KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_NORMALIZED_VALUE \
-    true
+#define KPMHOOK_CONFIG_IO_LIGHT_PORT_KEY \
+    "light.port"
+#define KPMHOOK_CONFIG_IO_DEFAULT_LIGHT_PORT_VALUE \
+    ""
 
-#define KPMHOOK_CONFIG_IO_LIGHTS_RAW_SERIAL_KEY \
-    "light.raw_serial"
-#define KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_SERIAL_VALUE \
-    false
-
-#define KPMHOOK_CONFIG_IO_LIGHTS_RAW_PORT_KEY \
-    "light.raw_serial_port"
-#define KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_PORT_VALUE \
-    "COM3"
-
-#define KPMHOOK_CONFIG_IO_LIGHTS_RAW_BAUD_KEY \
-    "light.raw_serial_baud"
-#define KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_BAUD_VALUE \
+#define KPMHOOK_CONFIG_IO_LIGHT_BAUD_KEY \
+    "light.baud"
+#define KPMHOOK_CONFIG_IO_DEFAULT_LIGHT_BAUD_VALUE \
     115200
 
 #define KPMHOOK_CONFIG_IO_CARD_PORT_KEY \
@@ -38,16 +28,6 @@
     "cabinet.girl"
 #define KPMHOOK_CONFIG_IO_DEFAULT_CABINET_GIRL_VALUE \
     "manaka"
-
-#define KPMHOOK_CONFIG_IO_BOOT_CREDITS_KEY \
-    "game.boot_credits"
-#define KPMHOOK_CONFIG_IO_DEFAULT_BOOT_CREDITS_VALUE \
-    0
-
-#define KPMHOOK_CONFIG_IO_ATTRACT_MODE_KEY \
-    "game.attract_mode"
-#define KPMHOOK_CONFIG_IO_DEFAULT_ATTRACT_MODE_VALUE \
-    "alt"
 
 #define KPMHOOK_CONFIG_IO_SHOW_SECRET_MENU_KEY \
     "game.show_secret_menu"
@@ -79,29 +59,18 @@ void kpmhook_config_io_init(struct cconfig *config)
         "Disable game built-in developer debug keyboard shortcuts to prevent "
         "input collisions with arcade PCSub controls (default: true)");
 
-    cconfig_util_set_bool(
-        config,
-        KPMHOOK_CONFIG_IO_LIGHTS_NORMALIZED_KEY,
-        KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_NORMALIZED_VALUE,
-        "Normalize 110 cabinet LEDs into 4 zones (Screen, Front, Side L/R) for config.exe (default: true)");
-
-    cconfig_util_set_bool(
-        config,
-        KPMHOOK_CONFIG_IO_LIGHTS_RAW_SERIAL_KEY,
-        KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_SERIAL_VALUE,
-        "Stream raw 110-LED RGB lighting frames to serial port for DIY LED hardware (default: false)");
-
     cconfig_util_set_str(
         config,
-        KPMHOOK_CONFIG_IO_LIGHTS_RAW_PORT_KEY,
-        KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_PORT_VALUE,
-        "Serial port for DIY raw LED stream (default: COM3)");
+        KPMHOOK_CONFIG_IO_LIGHT_PORT_KEY,
+        KPMHOOK_CONFIG_IO_DEFAULT_LIGHT_PORT_VALUE,
+        "Serial port for arcade illumination command pass-through (e.g. COM3). "
+        "Leave empty to disable (default: empty)");
 
     cconfig_util_set_int(
         config,
-        KPMHOOK_CONFIG_IO_LIGHTS_RAW_BAUD_KEY,
-        KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_BAUD_VALUE,
-        "Baud rate for DIY raw LED stream (default: 115200)");
+        KPMHOOK_CONFIG_IO_LIGHT_BAUD_KEY,
+        KPMHOOK_CONFIG_IO_DEFAULT_LIGHT_BAUD_VALUE,
+        "Baud rate for serial illumination command pass-through (default: 115200)");
 
     cconfig_util_set_str(
         config,
@@ -116,20 +85,6 @@ void kpmhook_config_io_init(struct cconfig *config)
         KPMHOOK_CONFIG_IO_DEFAULT_CABINET_GIRL_VALUE,
         "Cabinet girlfriend jumper type (manaka, rinko, nene). Simulates PCSub "
         "hardware jumper plug to designate default girlfriend for guest play (default: manaka)");
-
-    cconfig_util_set_int(
-        config,
-        KPMHOOK_CONFIG_IO_BOOT_CREDITS_KEY,
-        KPMHOOK_CONFIG_IO_DEFAULT_BOOT_CREDITS_VALUE,
-        "Starting credits on boot. 0 for authentic arcade operation (waiting for medals), "
-        "1000 for developer free-play (default: 0)");
-
-    cconfig_util_set_str(
-        config,
-        KPMHOOK_CONFIG_IO_ATTRACT_MODE_KEY,
-        KPMHOOK_CONFIG_IO_DEFAULT_ATTRACT_MODE_VALUE,
-        "Standby attract mode when machine is idle: 'alt' (BOTH ALT: alternates between Slot and Panel demo), "
-        "'panel' (BOTH PANEL), 'slot' (BOTH SLOT) (default: alt)");
 
     cconfig_util_set_bool(
         config,
@@ -156,8 +111,6 @@ void kpmhook_config_io_init(struct cconfig *config)
         "Enable opening WMV character attract movie playback in Title / Attract mode (default: true)");
 }
 
-
-
 void kpmhook_config_io_get(
     struct kpmhook_config_io *config_io, struct cconfig *config)
 {
@@ -172,49 +125,27 @@ void kpmhook_config_io_get(
             KPMHOOK_CONFIG_IO_DEFAULT_DISABLE_DEBUG_KEYS_VALUE);
     }
 
-    if (!cconfig_util_get_bool(
-            config,
-            KPMHOOK_CONFIG_IO_LIGHTS_NORMALIZED_KEY,
-            &config_io->lights_normalized,
-            KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_NORMALIZED_VALUE)) {
-        log_warning(
-            "Invalid value for key '%s' specified, fallback to default '%d'",
-            KPMHOOK_CONFIG_IO_LIGHTS_NORMALIZED_KEY,
-            KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_NORMALIZED_VALUE);
-    }
-
-    if (!cconfig_util_get_bool(
-            config,
-            KPMHOOK_CONFIG_IO_LIGHTS_RAW_SERIAL_KEY,
-            &config_io->lights_raw_serial,
-            KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_SERIAL_VALUE)) {
-        log_warning(
-            "Invalid value for key '%s' specified, fallback to default '%d'",
-            KPMHOOK_CONFIG_IO_LIGHTS_RAW_SERIAL_KEY,
-            KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_SERIAL_VALUE);
-    }
-
     if (!cconfig_util_get_str(
             config,
-            KPMHOOK_CONFIG_IO_LIGHTS_RAW_PORT_KEY,
-            config_io->lights_raw_port,
-            sizeof(config_io->lights_raw_port) - 1,
-            KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_PORT_VALUE)) {
+            KPMHOOK_CONFIG_IO_LIGHT_PORT_KEY,
+            config_io->light_port,
+            sizeof(config_io->light_port) - 1,
+            KPMHOOK_CONFIG_IO_DEFAULT_LIGHT_PORT_VALUE)) {
         log_warning(
             "Invalid value for key '%s' specified, fallback to default '%s'",
-            KPMHOOK_CONFIG_IO_LIGHTS_RAW_PORT_KEY,
-            KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_PORT_VALUE);
+            KPMHOOK_CONFIG_IO_LIGHT_PORT_KEY,
+            KPMHOOK_CONFIG_IO_DEFAULT_LIGHT_PORT_VALUE);
     }
 
     if (!cconfig_util_get_int(
             config,
-            KPMHOOK_CONFIG_IO_LIGHTS_RAW_BAUD_KEY,
-            &config_io->lights_raw_baud,
-            KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_BAUD_VALUE)) {
+            KPMHOOK_CONFIG_IO_LIGHT_BAUD_KEY,
+            &config_io->light_baud,
+            KPMHOOK_CONFIG_IO_DEFAULT_LIGHT_BAUD_VALUE)) {
         log_warning(
             "Invalid value for key '%s' specified, fallback to default '%d'",
-            KPMHOOK_CONFIG_IO_LIGHTS_RAW_BAUD_KEY,
-            KPMHOOK_CONFIG_IO_DEFAULT_LIGHTS_RAW_BAUD_VALUE);
+            KPMHOOK_CONFIG_IO_LIGHT_BAUD_KEY,
+            KPMHOOK_CONFIG_IO_DEFAULT_LIGHT_BAUD_VALUE);
     }
 
     if (!cconfig_util_get_str(
@@ -245,35 +176,6 @@ void kpmhook_config_io_get(
         }
     } else {
         config_io->cabinet_girl = KPMHOOK_CABINET_GIRL_MANAKA;
-    }
-
-    if (!cconfig_util_get_int(
-            config,
-            KPMHOOK_CONFIG_IO_BOOT_CREDITS_KEY,
-            &config_io->boot_credits,
-            KPMHOOK_CONFIG_IO_DEFAULT_BOOT_CREDITS_VALUE)) {
-        log_warning(
-            "Invalid value for key '%s' specified, fallback to default '%d'",
-            KPMHOOK_CONFIG_IO_BOOT_CREDITS_KEY,
-            KPMHOOK_CONFIG_IO_DEFAULT_BOOT_CREDITS_VALUE);
-    }
-
-    char attract_buf[32];
-    if (cconfig_util_get_str(
-            config,
-            KPMHOOK_CONFIG_IO_ATTRACT_MODE_KEY,
-            attract_buf,
-            sizeof(attract_buf) - 1,
-            KPMHOOK_CONFIG_IO_DEFAULT_ATTRACT_MODE_VALUE)) {
-        if (!_stricmp(attract_buf, "panel") || !strcmp(attract_buf, "1")) {
-            config_io->attract_mode = 1; /* BOTH PANEL */
-        } else if (!_stricmp(attract_buf, "slot") || !strcmp(attract_buf, "2")) {
-            config_io->attract_mode = 2; /* BOTH SLOT */
-        } else {
-            config_io->attract_mode = 0; /* BOTH ALT (Default) */
-        }
-    } else {
-        config_io->attract_mode = 0;
     }
 
     if (!cconfig_util_get_bool(
@@ -320,4 +222,3 @@ void kpmhook_config_io_get(
             KPMHOOK_CONFIG_IO_DEFAULT_PLAY_MOVIE_VALUE);
     }
 }
-
