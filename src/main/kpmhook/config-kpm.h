@@ -29,6 +29,7 @@ bool kpm_config_get_sub_screen(void);
 /**
  * Check if sub-screen touch / mouse IR emulation is enabled.
  */
+bool kpm_config_get_sub_screen_touch(void);
 bool kpm_config_get_upper_screen_touch(void);
 
 #endif /* KPMHOOK_CONFIG_KPM_H */

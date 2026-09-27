@@ -70,7 +70,7 @@ void kpmhook_config_io_init(struct cconfig *config)
         config,
         KPMHOOK_CONFIG_IO_SUB_SCREEN_TOUCH_KEY,
         KPMHOOK_CONFIG_IO_DEFAULT_SUB_SCREEN_TOUCH_VALUE,
-        "Enable touch / mouse mapping on sub-screen (left half: Upper Screen L, right half: Upper Screen R) (default: true)");
+        "Enable touch / mouse mapping on sub-screen (left half: Sub Screen L, right half: Sub Screen R) (default: true)");
 
     cconfig_util_set_str(
         config,
@@ -238,12 +238,12 @@ void kpmhook_config_io_get(
     if (!cconfig_util_get_bool(
         config,
         KPMHOOK_CONFIG_IO_SUB_SCREEN_TOUCH_KEY,
-        &config_io->upper_screen_touch,
+        &config_io->sub_screen_touch,
         KPMHOOK_CONFIG_IO_DEFAULT_SUB_SCREEN_TOUCH_VALUE)) {
         if (!cconfig_util_get_bool(
             config,
             KPMHOOK_CONFIG_IO_UPPER_SCREEN_TOUCH_KEY,
-            &config_io->upper_screen_touch,
+            &config_io->sub_screen_touch,
             KPMHOOK_CONFIG_IO_DEFAULT_SUB_SCREEN_TOUCH_VALUE)) {
             log_warning(
                 "Invalid value for key '%s' specified, fallback to default '%d'",

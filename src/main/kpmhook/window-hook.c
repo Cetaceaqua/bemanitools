@@ -254,7 +254,7 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
 
                 kpm_touch_post_event(0, rel_x, rel_y, cw, ch, type);
             } else if (hWnd == s_station1_hwnd) {
-                if (kpm_config_get_upper_screen_touch()) {
+                if (kpm_config_get_sub_screen_touch()) {
                     int type = (Msg == WM_LBUTTONDOWN) ? 1 : ((Msg == WM_MOUSEMOVE) ? 2 : 4);
                     if (type == 2 && !(wParam & MK_LBUTTON)) {
                         break;
@@ -264,7 +264,7 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
                     if (type == 4) ReleaseCapture();
 
                     if (type == 4) {
-                        kpm_io_set_touch_upper_screen(false, false);
+                        kpm_io_set_touch_sub_screen(false, false);
                     } else {
                         RECT dst_rc;
                         int ox = 0, oy = 0, cw = 0, ch = 0;
@@ -288,11 +288,11 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
                             int rel_y = my - oy;
                             bool rotate = kpm_config_get_rotate();
                             if (rotate) {
-                                /* Portrait presentation (upright): Left half -> Upper Screen L, Right half -> Upper Screen R */
+                                /* Portrait presentation (upright): Left half -> Sub Screen L, Right half -> Sub Screen R */
                                 if (rel_x < cw / 2) {
-                                    kpm_io_set_touch_upper_screen(true, false);
+                                    kpm_io_set_touch_sub_screen(true, false);
                                 } else {
-                                    kpm_io_set_touch_upper_screen(false, true);
+                                    kpm_io_set_touch_sub_screen(false, true);
                                 }
                             } else {
                                 if (cw >= ch) {
@@ -300,21 +300,21 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
                                      * Arcade cabinet left sensor is top half (rel_y < ch / 2)
                                      * Arcade cabinet right sensor is bottom half (rel_y >= ch / 2) */
                                     if (rel_y < ch / 2) {
-                                        kpm_io_set_touch_upper_screen(true, false);
+                                        kpm_io_set_touch_sub_screen(true, false);
                                     } else {
-                                        kpm_io_set_touch_upper_screen(false, true);
+                                        kpm_io_set_touch_sub_screen(false, true);
                                     }
                                 } else {
                                     /* Native portrait monitor without software rotation */
                                     if (rel_x < cw / 2) {
-                                        kpm_io_set_touch_upper_screen(true, false);
+                                        kpm_io_set_touch_sub_screen(true, false);
                                     } else {
-                                        kpm_io_set_touch_upper_screen(false, true);
+                                        kpm_io_set_touch_sub_screen(false, true);
                                     }
                                 }
                             }
                         } else {
-                            kpm_io_set_touch_upper_screen(false, false);
+                            kpm_io_set_touch_sub_screen(false, false);
                         }
                     }
                 }
@@ -325,7 +325,7 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
         case WM_CAPTURECHANGED:
         case WM_KILLFOCUS:
             if (hWnd == s_station1_hwnd) {
-                kpm_io_set_touch_upper_screen(false, false);
+                kpm_io_set_touch_sub_screen(false, false);
             }
             break;
 

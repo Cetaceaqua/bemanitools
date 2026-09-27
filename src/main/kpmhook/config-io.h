@@ -24,7 +24,7 @@ struct kpmhook_config_io {
     int attract_timeout;
     bool boot_to_title;
     bool play_movie;
-    bool upper_screen_touch;
+    bool sub_screen_touch;
 };
 
 

@@ -21,8 +21,10 @@ enum kpm_io_button_bit {
     KPM_IO_BTN_COLLECT_PAYOUT = (1 << 4),  /* Collect / Payout button (virtual channel 1) */
     KPM_IO_BTN_RESET_KEY      = (1 << 5),  /* Attendant reset key (virtual channel 6) */
     KPM_IO_BTN_TRANSFER       = (1 << 6),  /* Transfer button (virtual channel 9) */
-    KPM_IO_BTN_UPPER_SCREEN_L = (1 << 7),  /* Upper Screen L (virtual channel 10) */
-    KPM_IO_BTN_UPPER_SCREEN_R = (1 << 8),  /* Upper Screen R (virtual channel 11) */
+    KPM_IO_BTN_SUB_SCREEN_L   = (1 << 7),  /* Sub Screen L (virtual channel 10) */
+    KPM_IO_BTN_SUB_SCREEN_R   = (1 << 8),  /* Sub Screen R (virtual channel 11) */
+    KPM_IO_BTN_UPPER_SCREEN_L = KPM_IO_BTN_SUB_SCREEN_L, /* Backward-compatibility alias */
+    KPM_IO_BTN_UPPER_SCREEN_R = KPM_IO_BTN_SUB_SCREEN_R, /* Backward-compatibility alias */
 };
 
 /**
@@ -163,8 +165,9 @@ void kpm_io_set_card_placed(bool placed);
 void kpm_io_set_card_available(bool available);
 
 /**
- * Set sub-screen touch / mouse IR emulation state (Upper Screen L / R).
+ * Set sub-screen touch / mouse IR emulation state (Sub Screen L / R).
  */
+void kpm_io_set_touch_sub_screen(bool l, bool r);
 void kpm_io_set_touch_upper_screen(bool l, bool r);
 
 #endif /* BEMANITOOLS_KPMIO_H */
