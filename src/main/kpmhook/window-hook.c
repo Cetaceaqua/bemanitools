@@ -182,13 +182,27 @@ static void trigger_exit_watchdog(void)
 #include "kpmhook/touch-hook.h"
 
 static int (WINAPI *real_ShowCursor)(BOOL bShow);
+static HCURSOR (WINAPI *real_SetCursor)(HCURSOR hCursor);
+
+static HCURSOR WINAPI my_SetCursor(HCURSOR hCursor)
+{
+    /* Always keep a valid arrow cursor visible for PC play */
+    if (!hCursor) {
+        hCursor = LoadCursor(NULL, IDC_ARROW);
+    }
+    if (real_SetCursor) {
+        return real_SetCursor(hCursor);
+    }
+    return hCursor;
+}
 
 static int WINAPI my_ShowCursor(BOOL bShow)
 {
     /* Always keep mouse cursor visible for PC pair-programming / play */
     if (real_ShowCursor) {
-        return real_ShowCursor(TRUE);
+        real_ShowCursor(TRUE);
     }
+    SetCursor(LoadCursor(NULL, IDC_ARROW));
     return 1;
 }
 
@@ -240,6 +254,12 @@ static LRESULT CALLBACK kpm_wnd_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM 
                 kpm_touch_post_event(0, rel_x, rel_y, cw, ch, type);
             }
             break;
+        }
+
+        /* Ensure mouse cursor is visible whenever mouse enters client area */
+        case WM_SETCURSOR: {
+            SetCursor(LoadCursor(NULL, IDC_ARROW));
+            return TRUE;
         }
 
         /* Suppress background erasing to avoid white flashes or border artifacts */
@@ -311,6 +331,10 @@ static void subclass_game_window(HWND hWnd, const char *desc)
 
     /* Force black background brush to prevent white flashes or borders */
     SetClassLongPtrW(hWnd, GCLP_HBRBACKGROUND, (LONG_PTR) GetStockObject(BLACK_BRUSH));
+
+    /* Force visible standard arrow cursor */
+    SetClassLongPtrW(hWnd, GCLP_HCURSOR, (LONG_PTR) LoadCursor(NULL, IDC_ARROW));
+    SetCursor(LoadCursor(NULL, IDC_ARROW));
 
     /* Disable Windows 11 borders and rounded corners */
     HMODULE dwm = GetModuleHandleA("dwmapi.dll");
@@ -629,6 +653,11 @@ static const struct hook_symbol kpm_window_syms[] = {
         .name = "ShowCursor",
         .patch = my_ShowCursor,
         .link = (void **) &real_ShowCursor,
+    },
+    {
+        .name = "SetCursor",
+        .patch = my_SetCursor,
+        .link = (void **) &real_SetCursor,
     },
 };
 

@@ -700,6 +700,13 @@ static HRESULT STDMETHODCALLTYPE my_DrawIndexedPrimitiveUP(
     return IDirect3DDevice9_DrawIndexedPrimitiveUP(real, PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
 }
 
+static BOOL STDMETHODCALLTYPE my_Device_ShowCursor(IDirect3DDevice9 *self, BOOL bShow)
+{
+    IDirect3DDevice9 *real = (IDirect3DDevice9 *) com_proxy_downcast(self)->real;
+    IDirect3DDevice9_ShowCursor(real, TRUE);
+    return TRUE;
+}
+
 static HRESULT STDMETHODCALLTYPE my_Present(
     IDirect3DDevice9 *self,
     const RECT *pSourceRect,
@@ -905,6 +912,7 @@ static HRESULT STDMETHODCALLTYPE my_CreateDevice(
             dev_vtbl->DrawPrimitiveUP = my_DrawPrimitiveUP;
             dev_vtbl->DrawIndexedPrimitive = my_DrawIndexedPrimitive;
             dev_vtbl->DrawIndexedPrimitiveUP = my_DrawIndexedPrimitiveUP;
+            dev_vtbl->ShowCursor = my_Device_ShowCursor;
             s_dev_proxy = (IDirect3DDevice9 *) dev_proxy;
             *pdev = s_dev_proxy;
             log_info("IDirect3DDevice9 wrapped with com_proxy successfully (proxy=0x%p, real=0x%p)", dev_proxy, s_real_device);
