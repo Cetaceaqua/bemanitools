@@ -263,6 +263,169 @@ static const struct hook_symbol kpm_hooknmouse_syms[] = {
     },
 };
 
+/*
+ * Safe replacement for game's touch collision detection routines:
+ * - 0x004197B0: SetMouseJustPush
+ * - 0x004198B0: SetMouseJustUnPush
+ * - 0x004199A0: SetMousePushing
+ *
+ * In the original game, these routines iterate over dword_E5F00C[0..10] up to 100 rects.
+ * When switching scenes (e.g. entering Date Mode), stale/freed heap pointers left in
+ * dword_E5F00C from transient objects (e.g. SB_MODE_SEL, roulette) cause an Access Violation (0xC0000005)
+ * because they cross page boundaries when scanning for the -1 terminator.
+ * These safe handlers use SEH to catch any invalid/dangling pointers, safely clear the slot,
+ * and prevent game crashes.
+ */
+
+static void hook_func_jmp(uintptr_t target_site, const void *hook_fn)
+{
+    uint32_t rel = (uint32_t) ((uintptr_t) hook_fn - (target_site + 5));
+    uint8_t jmp_bytes[5];
+    jmp_bytes[0] = 0xE9;
+    memcpy(&jmp_bytes[1], &rel, sizeof(rel));
+    patch_memory(target_site, jmp_bytes, sizeof(jmp_bytes));
+}
+
+static int __cdecl my_SetMousePushing(int16_t a1, int16_t a2)
+{
+    int16_t **tables = (int16_t **) 0x00E5F00C;
+    uint8_t *sw_data = (uint8_t *) 0x00E5F038;
+
+    for (int t = 0; t < 11; t++) {
+        int16_t *rects = tables[t];
+        if (!rects) {
+            continue;
+        }
+
+        __try {
+            if (*rects < 0) {
+                continue;
+            }
+
+            for (int i = 0; i < 100; i++) {
+                int16_t rx = rects[4 * i];
+                if (rx < 0) {
+                    break;
+                }
+                int16_t ry = rects[4 * i + 1];
+                int16_t rw = rects[4 * i + 2];
+                int16_t rh = rects[4 * i + 3];
+
+                if (a1 >= rx && a1 < rx + rw && a2 >= ry && a2 < ry + rh) {
+                    sw_data[t * 100 + i] |= 2;
+                } else {
+                    sw_data[t * 100 + i] &= ~2;
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            log_warning("kpm-touch: caught invalid touch table[%d]=%p in SetMousePushing, auto-clearing slot", t, rects);
+            tables[t] = NULL;
+        }
+    }
+    return 1;
+}
+
+static int __cdecl my_SetMouseJustPush(int16_t a1, int16_t a2)
+{
+    int16_t **tables = (int16_t **) 0x00E5F00C;
+    uint8_t *sw_data = (uint8_t *) 0x00E5F038;
+    int8_t *recent = (int8_t *) 0x00E5EF06;
+
+    for (int t = 0; t < 11; t++) {
+        int16_t *rects = tables[t];
+        if (!rects) {
+            continue;
+        }
+
+        __try {
+            if (*rects < 0) {
+                continue;
+            }
+
+            for (int i = 0; i < 100; i++) {
+                int16_t rx = rects[4 * i];
+                if (rx < 0) {
+                    break;
+                }
+                int16_t ry = rects[4 * i + 1];
+                int16_t rw = rects[4 * i + 2];
+                int16_t rh = rects[4 * i + 3];
+
+                if (a1 >= rx && a1 < rx + rw && a2 >= ry && a2 < ry + rh) {
+                    if ((sw_data[t * 100 + i] & 2) == 0) {
+                        sw_data[t * 100 + i] = 3;
+                        *recent = (int8_t) i;
+                    }
+                } else {
+                    sw_data[t * 100 + i] &= ~2;
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            log_warning("kpm-touch: caught invalid touch table[%d]=%p in SetMouseJustPush, auto-clearing slot", t, rects);
+            tables[t] = NULL;
+        }
+    }
+    return 0;
+}
+
+static int __cdecl my_SetMouseJustUnPush(int16_t a1, int16_t a2)
+{
+    int16_t **tables = (int16_t **) 0x00E5F00C;
+    uint8_t *sw_data = (uint8_t *) 0x00E5F038;
+
+    for (int t = 0; t < 11; t++) {
+        int16_t *rects = tables[t];
+        if (!rects) {
+            continue;
+        }
+
+        __try {
+            if (*rects < 0) {
+                continue;
+            }
+
+            for (int i = 0; i < 100; i++) {
+                int16_t rx = rects[4 * i];
+                if (rx < 0) {
+                    break;
+                }
+                int16_t ry = rects[4 * i + 1];
+                int16_t rw = rects[4 * i + 2];
+                int16_t rh = rects[4 * i + 3];
+
+                if (a1 >= rx && a1 < rx + rw && a2 >= ry && a2 < ry + rh) {
+                    sw_data[t * 100 + i] = (sw_data[t * 100 + i] & 0xF9) | 4;
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            log_warning("kpm-touch: caught invalid touch table[%d]=%p in SetMouseJustUnPush, auto-clearing slot", t, rects);
+            tables[t] = NULL;
+        }
+    }
+    return 1;
+}
+
+static LONG WINAPI kpm_touch_veh_filter(PEXCEPTION_POINTERS ep)
+{
+    if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+        uintptr_t ip = (uintptr_t) ep->ContextRecord->Eip;
+        /* Check if crash occurred inside touch table scanning routines (0x004197B0 - 0x00419A90) */
+        if (ip >= 0x004197B0 && ip < 0x00419A90) {
+            log_warning("kpm-touch VEH: intercepted access violation in touch collision at 0x%p, recovering safely", (void *) ip);
+            if (ip >= 0x004199A0) {
+                ep->ContextRecord->Eip = 0x00419A8F;
+            } else if (ip >= 0x004198B0) {
+                ep->ContextRecord->Eip = 0x00419998;
+            } else {
+                ep->ContextRecord->Eip = 0x004198A7;
+            }
+            ep->ContextRecord->Eax = 1;
+            return EXCEPTION_CONTINUE_EXECUTION;
+        }
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 void kpm_touch_hook_init(void)
 {
     init_screen_queues();
@@ -285,6 +448,16 @@ void kpm_touch_hook_init(void)
     static const uint8_t nops_2[2] = { 0x90, 0x90 };
     patch_memory(0x004187cf, nops_2, sizeof(nops_2));
     log_info("Patched 0x004187cf: Bypassed Elo factory bezel calibration distortion (1:1 pixel mapping enabled)");
+
+    /* Install safe SEH touch table collision handlers to prevent 0xC0000005 crash on scene transitions */
+    hook_func_jmp(0x004197B0, my_SetMouseJustPush);
+    hook_func_jmp(0x004198B0, my_SetMouseJustUnPush);
+    hook_func_jmp(0x004199A0, my_SetMousePushing);
+    log_info("Patched 0x004197B0, 0x004198B0, 0x004199A0: Safe SEH touch table collision handlers installed");
+
+    /* Install Vectored Exception Handler as ultimate safety net for any touch collision edge cases */
+    AddVectoredExceptionHandler(1, kpm_touch_veh_filter);
+    log_info("Installed Vectored Exception Handler for touch collision safety");
 
     log_info("EloPubIf & libHooknMouse touch panel hooks installed successfully");
 }

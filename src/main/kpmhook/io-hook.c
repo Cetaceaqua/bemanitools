@@ -43,6 +43,8 @@
 #define ADDR_BETSLOT_CREDIT_BYPASS   0x004C4440
 #define ADDR_COIN_DWELL_TIMEOUT_JUMP 0x00402079
 #define ADDR_TITLE_SET_TUTORIAL_FLAG      0x004A270C
+#define ADDR_EAPASS_SET_TUTORIAL_FLAG     0x004BB36E
+#define ADDR_COMMON_RESET_TUTORIAL_FLAG   0x0055CE46
 #define ADDR_PANEL_CHECK_TUTORIAL_FLAG    0x00473F2B
 #define ADDR_BOOT_STATUS_INIT_MODE   0x00425A60
 #define ADDR_STARTUP_MODE_SWITCH_JUMP 0x004263C1
@@ -853,6 +855,20 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
     static const uint8_t patch_title_no_tutorial[7] = { 0xC6, 0x82, 0x30, 0x05, 0x00, 0x00, 0x00 };
     patch_memory(ADDR_TITLE_SET_TUTORIAL_FLAG, patch_title_no_tutorial, sizeof(patch_title_no_tutorial));
 
+    /* Patch 0x004BB36E: In CGameEapass_UpdateStation (Step 29), prevent resetting m_bShowTutorial to 1 on logout / session end.
+     * Originally: C6 81 30 05 00 00 01 (mov byte ptr [ecx+530h], 1)
+     * Replace with: C6 81 30 05 00 00 00 (mov byte ptr [ecx+530h], 0)
+     */
+    static const uint8_t patch_eapass_no_tutorial[7] = { 0xC6, 0x81, 0x30, 0x05, 0x00, 0x00, 0x00 };
+    patch_memory(ADDR_EAPASS_SET_TUTORIAL_FLAG, patch_eapass_no_tutorial, sizeof(patch_eapass_no_tutorial));
+
+    /* Patch 0x0055CE46: In sub_55CE30, prevent resetting m_bShowTutorial to 1 during session cleanup.
+     * Originally: C6 81 30 05 00 00 01 (mov byte ptr [ecx+530h], 1)
+     * Replace with: C6 81 30 05 00 00 00 (mov byte ptr [ecx+530h], 0)
+     */
+    static const uint8_t patch_cleanup_no_tutorial[7] = { 0xC6, 0x81, 0x30, 0x05, 0x00, 0x00, 0x00 };
+    patch_memory(ADDR_COMMON_RESET_TUTORIAL_FLAG, patch_cleanup_no_tutorial, sizeof(patch_cleanup_no_tutorial));
+
     /* Patch 0x00473F2B: In CGameNormalMode_UpdateState, bypass tutorial popup check (state 10) directly to state 5.
      * Originally: 80 BE 30 05 00 00 00 74 32 (cmp byte ptr [esi+530h], 0; jz short loc_473F66)
      * Replace with: EB 39 90 90 90 90 90 90 90 (jmp short loc_473F66; 7x nop)
@@ -862,8 +878,9 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
         0xEB, 0x39, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
     };
     patch_memory(ADDR_PANEL_CHECK_TUTORIAL_FLAG, patch_panel_skip_tutorial, sizeof(patch_panel_skip_tutorial));
-    log_info("Patched tutorial startup triggers at 0x%08X, 0x%08X, 0x%08X (manual tutorial retained)",
-             ADDR_COMMON_INIT_TUTORIAL_FLAG, ADDR_TITLE_SET_TUTORIAL_FLAG, ADDR_PANEL_CHECK_TUTORIAL_FLAG);
+    log_info("Patched all tutorial startup triggers at 0x%08X, 0x%08X, 0x%08X, 0x%08X, 0x%08X (manual tutorial retained)",
+             ADDR_COMMON_INIT_TUTORIAL_FLAG, ADDR_TITLE_SET_TUTORIAL_FLAG, ADDR_EAPASS_SET_TUTORIAL_FLAG,
+             ADDR_COMMON_RESET_TUTORIAL_FLAG, ADDR_PANEL_CHECK_TUTORIAL_FLAG);
 
     /* Patch 0x00403563 & 0x0040356C: In sub_403550, un-gate CMainApplication state checks.
      * Originally: 74 2F (jz 0x403594) and 74 26 (jz 0x403594).
