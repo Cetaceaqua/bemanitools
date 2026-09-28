@@ -23,6 +23,7 @@
 #define ADDR_DWORD_1ACFCBC        0x01ACFCBC
 #define ADDR_CHECK_PCSUB_MODE_JUMP   0x0041ECF7
 #define ADDR_NO_SUBBOARD_CHECK_CALL  0x0041F4DE
+#define ADDR_INITIAL_SRAM_GRANT_CREDITS 0x0041F5E2
 #define ADDR_COMMON_INIT_TUTORIAL_FLAG 0x0044AD75
 #define ADDR_CHECK_EAMUSE_PLUG_JUMP  0x0041FDC6
 #define ADDR_PCSUB_GET_NET_PLUG_ID   0x005CA870
@@ -718,6 +719,14 @@ void kpm_io_hook_init(const struct kpmhook_config_io *cfg)
     log_info(
         "Hooked NO_SUBBOARD initialization check at 0x%08X to protect SRAM persistence",
         ADDR_NO_SUBBOARD_CHECK_CALL);
+
+    /* Patch 0x0041F5E2: Prevent granting 1000 debug credits on initial SRAM partition format.
+     * Originally: B8 E8 03 00 00 (mov eax, 3E8h) -> grants 1000 credits via sub_401780.
+     * Replace with: 31 C0 90 90 90 (xor eax, eax; 3x nop) -> sets 0 credits on fresh NVRAM format.
+     */
+    static const uint8_t patch_zero_initial_credits[5] = { 0x31, 0xC0, 0x90, 0x90, 0x90 };
+    patch_memory(ADDR_INITIAL_SRAM_GRANT_CREDITS, patch_zero_initial_credits, sizeof(patch_zero_initial_credits));
+    log_info("Patched initial SRAM partition format at 0x%08X to grant 0 credits (was 1000)", ADDR_INITIAL_SRAM_GRANT_CREDITS);
 
     /* Hook CHumanInputDevice::vftable[5] (GetButtonState at 0x00BBC180) to provide direct,
      * debounced Transfer (Channel 9) button input straight to game logic */
