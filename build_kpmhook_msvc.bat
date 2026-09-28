@@ -370,6 +370,7 @@ if exist "%DEST%" (
     if not exist "%DEST%\eamhook.conf" copy /Y dist\kpm\eamhook.conf "%DEST%\" >nul
     copy /Y dist\kpm\dongle_network.bin "%DEST%\" >nul
     copy /Y dist\kpm\dongle_software.bin "%DEST%\" >nul
+    copy /Y dist\kpm\d3d9.dll "%DEST%\" >nul
     if exist "%DEST%\eamuse\eamhook.dll" del /F "%DEST%\eamuse\eamhook.dll"
     echo Deploy complete.
 )

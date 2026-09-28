@@ -34,6 +34,7 @@ copy /Y dist\kpm\kpmhook.conf "%STAGE_DIR%\" >nul
 copy /Y dist\kpm\eamhook.conf "%STAGE_DIR%\" >nul
 copy /Y dist\kpm\dongle_network.bin "%STAGE_DIR%\" >nul
 copy /Y dist\kpm\dongle_software.bin "%STAGE_DIR%\" >nul
+copy /Y dist\kpm\d3d9.dll "%STAGE_DIR%\" >nul
 
 echo.
 echo Creating ZIP archive: %ZIP_FILE%...
