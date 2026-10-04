@@ -344,12 +344,14 @@ static void init_rotation_resources(IDirect3DDevice9 *real, UINT backbuf_w, UINT
 {
     release_rotation_resources();
 
-    if (!kpm_config_get_sub_screen()) {
-        log_info("Sub-screen disabled by configuration; skipping Station 1 swapchain setup");
-        return;
-    }
-
-    /* Create Station 1 1024x768 render target texture so game renders directly to it */
+    /* Create Station 1 1024x768 render target texture so game renders Station 1 to it.
+     * CRITICAL: We MUST create this texture and surface regardless of whether gfx.sub_screen
+     * is true or false! The game engine always renders 2 stations (Station 0 and Station 1).
+     * If s_station1_surface is not created, GetBackBuffer(1) fails with D3DERR_INVALIDCALL,
+     * causing the game's SetRenderTarget to be skipped during Station 1's render pass.
+     * The device's active render target then remains Station 0's backbuffer, and Station 1's
+     * clear call (sub_5870E0) wipes Station 0's backbuffer to pure black every frame!
+     */
     HRESULT hr = IDirect3DDevice9_CreateTexture(
         real, backbuf_w, backbuf_h, 1,
         D3DUSAGE_RENDERTARGET,
@@ -362,6 +364,11 @@ static void init_rotation_resources(IDirect3DDevice9 *real, UINT backbuf_w, UINT
         log_info("Created Station 1 render target texture: %ux%u (hr=0x%08lx)", backbuf_w, backbuf_h, hr);
     } else {
         log_warning("Failed to create Station 1 render target texture: 0x%08lx", hr);
+    }
+
+    if (!kpm_config_get_sub_screen()) {
+        log_info("Sub-screen display disabled by configuration; skipping Station 1 presentation swapchain");
+        return;
     }
 
     /* Create Station 1 presentation swapchain (768x1024 if rotated, else 1024x768) */
